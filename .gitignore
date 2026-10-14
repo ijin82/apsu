@@ -39,3 +39,9 @@ output.json
 # OS artifacts
 .DS_Store
 Thumbs.db
+
+# Release artifacts & packages
+*.zip
+release/
+release_staging/
+
