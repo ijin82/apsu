@@ -16,6 +16,7 @@ core/libqsyncserver.h
 # Android / Gradle artifacts
 .gradle/
 **/build/
+**/release/
 .kotlin/
 captures/
 .externalNativeBuild/
