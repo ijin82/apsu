@@ -43,18 +43,32 @@ The project is structured as a monorepo containing:
 - Android Studio / Android SDK (API 34+)
 
 ### 1. Build the Android Native Core (`libqsyncserver.so`)
+The Go engine can be built for multiple Android ABIs:
+- **`arm64-v8a`** (default): Modern 64-bit ARM phones (>95% of active devices).
+- **`armeabi-v7a`**: Older 32-bit ARM devices and tablets.
+- **`x86_64`**: Android emulators, ChromeOS, and Android-x86.
+
 ```bash
-./scripts/build_android_native.sh
+# Build for standard 64-bit ARM (default):
+./scripts/build_android_native.sh arm64
+
+# Or build for all architectures at once:
+./scripts/build_android_native.sh all
 ```
-This builds `libqsyncserver.so` (arm64-v8a) using the Android NDK toolchain and copies it directly into `android/app/src/main/jniLibs/arm64-v8a/`.
+The script compiles `libqsyncserver.so` via Docker/NDK and installs it directly into `android/app/src/main/jniLibs/<abi>/`.
 
 ### 2. Build the Android App
 Open `android/` in Android Studio, or build via Gradle:
 ```bash
 cd android
+
+# Debug APK:
 ./gradlew assembleDebug
+
+# Release APK (see below for signing):
+./gradlew assembleRelease
 ```
-The output APK will be at `android/app/build/outputs/apk/debug/app-debug.apk`.
+Debug output is generated at `android/app/build/outputs/apk/debug/app-debug.apk`.
 
 ### 3. Build the Linux CLI & Daemon
 ```bash
