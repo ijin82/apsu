@@ -439,6 +439,7 @@ class QSyncQuickToggle extends QuickSettings.QuickMenuToggle {
             toggleMode: true,
         });
 
+        this._isQSyncToggle = true;
         this._ext = extension;
         this.menu.setHeader('phone-symbolic', 'qSync for Android', 'Local Wi-Fi file sync');
 
@@ -467,6 +468,14 @@ class QSyncQuickToggle extends QuickSettings.QuickMenuToggle {
         this.connect('clicked', () => {
             this._ext.toggleActive(this.checked);
         });
+    }
+
+    destroy() {
+        if (this.menu) {
+            this.menu.destroy();
+            this.menu = null;
+        }
+        super.destroy();
     }
 
     updateState(active, phoneFound, phoneName, phoneIP, phonePort, isMounted, isPaired = false) {
@@ -520,8 +529,20 @@ const QSyncSystemIndicator = GObject.registerClass(
 class QSyncSystemIndicator extends QuickSettings.SystemIndicator {
     _init(extension) {
         super._init();
+        this._isQSyncIndicator = true;
         this.quickSettingsToggle = new QSyncQuickToggle(extension);
         this.quickSettingsItems.push(this.quickSettingsToggle);
+    }
+
+    destroy() {
+        this.quickSettingsItems.forEach(item => {
+            if (item) {
+                item.destroy();
+            }
+        });
+        this.quickSettingsItems = [];
+        this.quickSettingsToggle = null;
+        super.destroy();
     }
 });
 
@@ -535,6 +556,9 @@ export default class QSyncExtension extends Extension {
         this._settingsDialog = null;
         this._syncingDevices = new Set();
         this._lastDevices = [];
+
+        // Clean up any preexisting/orphaned toggles in Quick Settings grid (e.g. from previous reloads)
+        this._cleanupQuickSettings();
 
         // 1. Top Bar Panel Indicator
         this._indicator = new PanelMenu.Button(0.0, this.metadata.name, false);
@@ -594,9 +618,52 @@ export default class QSyncExtension extends Extension {
             this._qsIndicator = null;
         }
 
+        this._cleanupQuickSettings();
+
         this._syncingDevices = null;
         this._lastDevices = null;
         this._proxy = null;
+    }
+
+    _cleanupQuickSettings() {
+        try {
+            const qsMenu = Main.panel.statusArea.quickSettings?.menu;
+            if (qsMenu && qsMenu._grid) {
+                const itemsToRemove = [];
+                for (const child of qsMenu._grid.get_children()) {
+                    if (this._qsIndicator && child === this._qsIndicator.quickSettingsToggle)
+                        continue;
+                    if (child.title === 'qSync' || child._isQSyncToggle || child._ext !== undefined || child.constructor?.name === 'QSyncQuickToggle') {
+                        itemsToRemove.push(child);
+                    }
+                }
+                for (const item of itemsToRemove) {
+                    if (item.menu) {
+                        try { item.menu.destroy(); } catch (e) {}
+                    }
+                    try { item.destroy(); } catch (e) {}
+                }
+            }
+        } catch (e) {
+            console.error('qSync: error during quick settings cleanup', e);
+        }
+
+        try {
+            const indicatorsBox = Main.panel.statusArea.quickSettings?._indicators;
+            if (indicatorsBox) {
+                const indicatorsToRemove = [];
+                for (const child of indicatorsBox.get_children()) {
+                    if (child === this._qsIndicator)
+                        continue;
+                    if (child._isQSyncIndicator || child.constructor?.name === 'QSyncSystemIndicator') {
+                        indicatorsToRemove.push(child);
+                    }
+                }
+                for (const ind of indicatorsToRemove) {
+                    try { ind.destroy(); } catch (e) {}
+                }
+            }
+        } catch (e) {}
     }
 
     _buildPanelMenu() {
