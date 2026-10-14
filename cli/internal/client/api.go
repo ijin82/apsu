@@ -72,3 +72,28 @@ func Ping(ip string, port int) bool {
 	// Server returns 401 Unauthorized for unauthenticated requests, which means it is alive!
 	return resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusOK
 }
+
+type ServerInfo struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+	Port    int    `json:"port"`
+}
+
+// FetchServerName queries /api/info to retrieve the actual device name set in phone settings
+func FetchServerName(ip string, port int) string {
+	httpClient := &http.Client{Timeout: 800 * time.Millisecond}
+	url := fmt.Sprintf("http://%s:%d/api/info", ip, port)
+	resp, err := httpClient.Get(url)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		var info ServerInfo
+		if err := json.NewDecoder(resp.Body).Decode(&info); err == nil && info.Name != "" {
+			return info.Name
+		}
+	}
+	return ""
+}

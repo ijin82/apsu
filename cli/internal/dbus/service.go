@@ -357,8 +357,13 @@ func (d *DaemonService) checkStatus() {
 			token, _ = keyring.GetToken("")
 		}
 
+		name := disc.Name
+		if actualName := client.FetchServerName(disc.IP, disc.Port); actualName != "" {
+			name = actualName
+		}
+
 		newDevices[disc.IP] = DeviceStatus{
-			Name:      disc.Name,
+			Name:      name,
 			IP:        disc.IP,
 			Port:      disc.Port,
 			IsOnline:  true,
@@ -372,11 +377,15 @@ func (d *DaemonService) checkStatus() {
 		if _, exists := newDevices[p.IP]; !exists {
 			online := client.Ping(p.IP, p.Port)
 			isMounted := false
+			name := p.Name
 			if online {
 				isMounted, _ = d.mounter.IsMounted(p.IP, p.Port)
+				if actualName := client.FetchServerName(p.IP, p.Port); actualName != "" {
+					name = actualName
+				}
 			}
 			newDevices[p.IP] = DeviceStatus{
-				Name:      p.Name,
+				Name:      name,
 				IP:        p.IP,
 				Port:      p.Port,
 				IsOnline:  online,

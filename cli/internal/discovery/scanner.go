@@ -2,6 +2,7 @@ package discovery
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -169,8 +170,24 @@ func scanSubnets(ctx context.Context, port int, out chan<- DiscoveredDevice) {
 
 				authHeader := resp.Header.Get("Www-Authenticate")
 				if resp.StatusCode == http.StatusUnauthorized && strings.Contains(authHeader, `realm="qSync"`) {
+					deviceName := "qSync Android"
+
+					// Try to fetch custom name configured on phone from /api/info
+					infoReq, infoErr := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf("http://%s:%d/api/info", targetIP, port), nil)
+					if infoErr == nil {
+						if infoResp, err := client.Do(infoReq); err == nil {
+							var info struct {
+								Name string `json:"name"`
+							}
+							if json.NewDecoder(infoResp.Body).Decode(&info) == nil && info.Name != "" {
+								deviceName = info.Name
+							}
+							infoResp.Body.Close()
+						}
+					}
+
 					dev := DiscoveredDevice{
-						Name: "qSync Android",
+						Name: deviceName,
 						Host: targetIP,
 						IP:   targetIP,
 						Port: port,
