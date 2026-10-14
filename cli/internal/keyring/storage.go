@@ -14,10 +14,17 @@ const (
 	DefaultKey  = "default_token"
 )
 
+type DeviceInfo struct {
+	Name string `json:"name"`
+	IP   string `json:"ip"`
+	Port int    `json:"port"`
+}
+
 type Config struct {
-	LastServerName string `json:"last_server_name"`
-	LastServerIP   string `json:"last_server_ip"`
-	LastServerPort int    `json:"last_server_port"`
+	LastServerName string                `json:"last_server_name"`
+	LastServerIP   string                `json:"last_server_ip"`
+	LastServerPort int                   `json:"last_server_port"`
+	PairedDevices  map[string]DeviceInfo `json:"paired_devices,omitempty"`
 }
 
 func getConfigPath() (string, error) {
@@ -37,6 +44,9 @@ func SaveConfig(cfg Config) error {
 	if err != nil {
 		return err
 	}
+	if cfg.PairedDevices == nil {
+		cfg.PairedDevices = make(map[string]DeviceInfo)
+	}
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return err
@@ -55,7 +65,26 @@ func LoadConfig() (Config, error) {
 		return cfg, err
 	}
 	err = json.Unmarshal(data, &cfg)
+	if cfg.PairedDevices == nil {
+		cfg.PairedDevices = make(map[string]DeviceInfo)
+	}
 	return cfg, err
+}
+
+func NormalizeServerKey(name string) string {
+	if name == "" {
+		return DefaultKey
+	}
+	// Replace non-alphanumeric chars with _
+	var clean []rune
+	for _, r := range name {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
+			clean = append(clean, r)
+		} else {
+			clean = append(clean, '_')
+		}
+	}
+	return "dev_" + string(clean)
 }
 
 func SaveToken(serverID, token string) error {
@@ -71,6 +100,10 @@ func GetToken(serverID string) (string, error) {
 	}
 	token, err := keyring.Get(ServiceName, serverID)
 	if err != nil {
+		// Fallback to default if specific key not found
+		if serverID != DefaultKey {
+			return keyring.Get(ServiceName, DefaultKey)
+		}
 		return "", fmt.Errorf("failed to retrieve token: %w", err)
 	}
 	return token, nil

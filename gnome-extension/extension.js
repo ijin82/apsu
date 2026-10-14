@@ -39,6 +39,29 @@ const QSyncIface = `
     <method name="OpenInNautilus">
       <arg type="b" direction="out" name="success"/>
     </method>
+    <method name="GetDevicesJSON">
+      <arg type="s" direction="out" name="jsonString"/>
+    </method>
+    <method name="MountDevice">
+      <arg type="s" direction="in" name="name"/>
+      <arg type="s" direction="in" name="ip"/>
+      <arg type="i" direction="in" name="port"/>
+      <arg type="b" direction="out" name="success"/>
+      <arg type="s" direction="out" name="message"/>
+    </method>
+    <method name="UnmountDevice">
+      <arg type="s" direction="in" name="name"/>
+      <arg type="s" direction="in" name="ip"/>
+      <arg type="i" direction="in" name="port"/>
+      <arg type="b" direction="out" name="success"/>
+      <arg type="s" direction="out" name="message"/>
+    </method>
+    <method name="OpenDeviceInFileManager">
+      <arg type="s" direction="in" name="name"/>
+      <arg type="s" direction="in" name="ip"/>
+      <arg type="i" direction="in" name="port"/>
+      <arg type="b" direction="out" name="success"/>
+    </method>
     <signal name="StatusChanged">
       <arg type="b" name="phoneFound"/>
       <arg type="b" name="isMounted"/>
@@ -277,23 +300,14 @@ export default class QSyncExtension extends Extension {
         this._menuSub = new PopupMenu.PopupMenuItem('Waiting...', {reactive: false});
         this._indicator.menu.addMenuItem(this._menuSub);
 
+        this._devicesSection = new PopupMenu.PopupMenuSection();
+        this._indicator.menu.addMenuItem(this._devicesSection);
+
         this._indicator.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
-        this._actionPair = new PopupMenu.PopupMenuItem('🤝 Pair Phone...');
+        this._actionPair = new PopupMenu.PopupMenuItem('🤝 Pair New Phone...');
         this._actionPair.connect('activate', () => this.showPairDialog());
         this._indicator.menu.addMenuItem(this._actionPair);
-
-        this._actionMount = new PopupMenu.PopupMenuItem('🔗 Mount Phone');
-        this._actionMount.connect('activate', () => this.mountPhone());
-        this._indicator.menu.addMenuItem(this._actionMount);
-
-        this._actionOpen = new PopupMenu.PopupMenuItem('📂 Open in File Manager');
-        this._actionOpen.connect('activate', () => this.openFileManager());
-        this._indicator.menu.addMenuItem(this._actionOpen);
-
-        this._actionUnmount = new PopupMenu.PopupMenuItem('⏏ Unmount Phone');
-        this._actionUnmount.connect('activate', () => this.unmountPhone());
-        this._indicator.menu.addMenuItem(this._actionUnmount);
     }
 
     showPairDialog() {
@@ -336,7 +350,7 @@ export default class QSyncExtension extends Extension {
             this._indicator.visible = false;
             this._stopDaemon();
             this._stopPolling();
-            this._updateUIState(false, '', '', 0, false);
+            this._updateUIState(false, '', '', 0, false, []);
         }
     }
 
@@ -377,8 +391,7 @@ export default class QSyncExtension extends Extension {
                 this._isActive = true;
                 this._indicator.visible = true;
                 this._startPolling();
-                const [phoneFound, phoneName, phoneIP, phonePort, isMounted] = result;
-                this._updateUIState(phoneFound, phoneName, phoneIP, phonePort, isMounted);
+                this._refreshStatus();
             }
         });
     }
@@ -421,40 +434,52 @@ export default class QSyncExtension extends Extension {
 
         this._proxy.GetStatusRemote((result, error) => {
             if (error || !result) {
-                this._updateUIState(false, 'Daemon Offline', '', 0, false);
+                this._updateUIState(false, 'Daemon Offline', '', 0, false, []);
                 return;
             }
             const [phoneFound, phoneName, phoneIP, phonePort, isMounted] = result;
-            this._updateUIState(phoneFound, phoneName, phoneIP, phonePort, isMounted);
+
+            this._proxy.GetDevicesJSONRemote((devResult, devErr) => {
+                let devices = [];
+                if (!devErr && devResult && devResult[0]) {
+                    try {
+                        devices = JSON.parse(devResult[0]);
+                    } catch (e) {}
+                }
+                this._updateUIState(phoneFound, phoneName, phoneIP, phonePort, isMounted, devices);
+            });
         });
     }
 
-    _updateUIState(phoneFound, phoneName, phoneIP, phonePort, isMounted) {
+    _updateUIState(phoneFound, phoneName, phoneIP, phonePort, isMounted, devices = []) {
         if (phoneIP) {
             this._phoneIP = phoneIP;
             this._phonePort = phonePort || 8484;
         }
 
+        const anyMounted = isMounted || devices.some(d => d.isMounted);
+        const anyOnline = phoneFound || devices.some(d => d.isOnline);
+
         // 1. Update Quick Settings Toggle
         if (this._qsIndicator && this._qsIndicator.quickSettingsToggle) {
             this._qsIndicator.quickSettingsToggle.updateState(
                 this._isActive,
-                phoneFound,
+                anyOnline,
                 phoneName,
                 phoneIP,
                 phonePort,
-                isMounted
+                anyMounted
             );
         }
 
-        // 2. Update Top Bar Panel Indicator
+        // 2. Update Top Bar Panel Indicator Icon
         if (!this._icon || !this._menuHeader) return;
 
         this._icon.style_class = 'system-status-icon';
-        if (isMounted) {
+        if (anyMounted) {
             this._icon.icon_name = 'drive-harddisk-symbolic';
             this._icon.add_style_class_name('qsync-indicator-mounted');
-        } else if (phoneFound) {
+        } else if (anyOnline) {
             this._icon.icon_name = 'phone-symbolic';
             this._icon.add_style_class_name('qsync-indicator-online');
         } else {
@@ -462,17 +487,65 @@ export default class QSyncExtension extends Extension {
             this._icon.add_style_class_name('qsync-indicator-offline');
         }
 
-        if (phoneFound) {
+        // Update Top Bar Header
+        if (devices.length > 1) {
+            const onlineCount = devices.filter(d => d.isOnline).length;
+            this._menuHeader.label.text = `qSync (${onlineCount}/${devices.length} Online)`;
+            this._menuSub.label.text = anyMounted ? 'Devices Connected & Mounted' : 'Ready to Connect';
+        } else if (anyOnline) {
             this._menuHeader.label.text = phoneName || 'Phone in Wi-Fi';
-            this._menuSub.label.text = `${phoneIP}:${phonePort}` + (isMounted ? ' (Mounted)' : ' (Ready)');
+            this._menuSub.label.text = `${phoneIP}:${phonePort}` + (anyMounted ? ' (Mounted)' : ' (Ready)');
         } else {
             this._menuHeader.label.text = phoneName || 'Phone Disconnected';
             this._menuSub.label.text = phoneIP ? `${phoneIP} (Offline)` : 'Searching on Wi-Fi...';
         }
 
-        if (this._actionMount) this._actionMount.visible = (phoneFound && !isMounted);
-        if (this._actionOpen) this._actionOpen.visible = isMounted;
-        if (this._actionUnmount) this._actionUnmount.visible = isMounted;
+        // 3. Render Devices in Menu
+        if (this._devicesSection) {
+            this._devicesSection.removeAll();
+
+            if (devices.length === 0) {
+                if (anyOnline) {
+                    // Fallback to single device display
+                    const singleDev = {
+                        name: phoneName || 'Phone',
+                        ip: phoneIP,
+                        port: phonePort,
+                        isOnline: true,
+                        isMounted: isMounted
+                    };
+                    this._addDeviceMenuItems(this._devicesSection, singleDev);
+                } else {
+                    const emptyItem = new PopupMenu.PopupMenuItem('No devices detected', {reactive: false});
+                    this._devicesSection.addMenuItem(emptyItem);
+                }
+            } else {
+                devices.forEach(dev => {
+                    this._addDeviceMenuItems(this._devicesSection, dev);
+                });
+            }
+        }
+    }
+
+    _addDeviceMenuItems(section, dev) {
+        const title = `${dev.name} (${dev.ip}:${dev.port})`;
+        const status = dev.isMounted ? ' [Mounted]' : (dev.isOnline ? ' [Ready]' : ' [Offline]');
+        const headerItem = new PopupMenu.PopupMenuItem(`📱 ${title}${status}`, {reactive: false});
+        section.addMenuItem(headerItem);
+
+        if (dev.isMounted) {
+            const openItem = new PopupMenu.PopupMenuItem('    📂 Open in Files');
+            openItem.connect('activate', () => this.openDeviceInFileManager(dev.name, dev.ip, dev.port));
+            section.addMenuItem(openItem);
+
+            const unmountItem = new PopupMenu.PopupMenuItem('    ⏏ Unmount');
+            unmountItem.connect('activate', () => this.unmountDevice(dev.name, dev.ip, dev.port));
+            section.addMenuItem(unmountItem);
+        } else if (dev.isOnline) {
+            const mountItem = new PopupMenu.PopupMenuItem('    🔗 Mount');
+            mountItem.connect('activate', () => this.mountDevice(dev.name, dev.ip, dev.port));
+            section.addMenuItem(mountItem);
+        }
     }
 
     mountPhone() {
@@ -491,17 +564,36 @@ export default class QSyncExtension extends Extension {
         }
     }
 
-    openFileManager() {
-        if (!this._phoneIP) {
-            this._phoneIP = '192.168.3.40';
+    mountDevice(name, ip, port) {
+        if (this._proxy) {
+            this._proxy.MountDeviceRemote(name, ip, port, (result, err) => {
+                this._refreshStatus();
+            });
         }
-        const uri = `dav://qsync@${this._phoneIP}:${this._phonePort}/`;
+    }
+
+    unmountDevice(name, ip, port) {
+        if (this._proxy) {
+            this._proxy.UnmountDeviceRemote(name, ip, port, (result, err) => {
+                this._refreshStatus();
+            });
+        }
+    }
+
+    openDeviceInFileManager(name, ip, port) {
+        const targetIP = ip || this._phoneIP || '192.168.3.40';
+        const targetPort = port || this._phonePort || 8484;
+        const uri = `dav://qsync@${targetIP}:${targetPort}/`;
         try {
             Gio.AppInfo.launch_default_for_uri(uri, null);
         } catch (e) {
             if (this._proxy) {
-                this._proxy.OpenInNautilusRemote((result, err) => {});
+                this._proxy.OpenDeviceInFileManagerRemote(name || '', targetIP, targetPort, (result, err) => {});
             }
         }
+    }
+
+    openFileManager() {
+        this.openDeviceInFileManager('', this._phoneIP, this._phonePort);
     }
 }

@@ -123,29 +123,62 @@ var pairCmd = &cobra.Command{
 var openAfterMount bool
 
 var mountCmd = &cobra.Command{
-	Use:   "mount",
+	Use:   "mount [device_name]",
 	Short: "Mount phone drive in file manager (Nautilus)",
 	Run: func(cmd *cobra.Command, args []string) {
-		token, err := keyring.GetToken("")
-		if err != nil || token == "" {
-			fmt.Println("❌ Device not paired yet. Please run 'qsync pair' first.")
-			return
+		cfg, _ := keyring.LoadConfig()
+
+		targetName := ""
+		if len(args) > 0 {
+			targetName = args[0]
 		}
 
-		cfg, err := keyring.LoadConfig()
 		targetIP := cfg.LastServerIP
 		targetPort := cfg.LastServerPort
 
-		// Verify or discover IP
+		if targetName != "" {
+			if dev, ok := cfg.PairedDevices[targetName]; ok {
+				targetIP = dev.IP
+				targetPort = dev.Port
+			} else {
+				// Search by prefix or case-insensitive
+				for name, dev := range cfg.PairedDevices {
+					if strings.EqualFold(name, targetName) {
+						targetName = name
+						targetIP = dev.IP
+						targetPort = dev.Port
+						break
+					}
+				}
+			}
+		}
+
+		// Verify or discover IP if missing or unreachable
 		if targetIP == "" || !client.Ping(targetIP, targetPort) {
-			fmt.Println("🔍 Searching for phone on network...")
+			fmt.Println("🔍 Searching for devices on network...")
 			devices, err := discovery.Scan(2 * time.Second)
 			if err == nil && len(devices) > 0 {
-				targetIP = devices[0].IP
-				targetPort = devices[0].Port
-				cfg.LastServerIP = targetIP
-				cfg.LastServerPort = targetPort
-				_ = keyring.SaveConfig(cfg)
+				var matched *discovery.DiscoveredDevice
+				if targetName != "" {
+					for _, d := range devices {
+						if strings.EqualFold(d.Name, targetName) {
+							matched = &d
+							break
+						}
+					}
+				} else {
+					matched = &devices[0]
+				}
+
+				if matched != nil {
+					targetIP = matched.IP
+					targetPort = matched.Port
+					targetName = matched.Name
+					cfg.LastServerName = targetName
+					cfg.LastServerIP = targetIP
+					cfg.LastServerPort = targetPort
+					_ = keyring.SaveConfig(cfg)
+				}
 			}
 		}
 
@@ -154,12 +187,22 @@ var mountCmd = &cobra.Command{
 			return
 		}
 
+		deviceKey := keyring.NormalizeServerKey(targetName)
+		token, err := keyring.GetToken(deviceKey)
+		if err != nil || token == "" {
+			token, err = keyring.GetToken("")
+		}
+		if err != nil || token == "" {
+			fmt.Println("❌ Device not paired yet. Please run 'qsync pair' first.")
+			return
+		}
+
 		m := mount.GetMounter()
 		isMounted, _ := m.IsMounted(targetIP, targetPort)
 		if isMounted {
-			fmt.Printf("Phone is already mounted at %s:%d\n", targetIP, targetPort)
+			fmt.Printf("Phone '%s' is already mounted at %s:%d\n", targetName, targetIP, targetPort)
 		} else {
-			fmt.Printf("📁 Mounting %s:%d...\n", targetIP, targetPort)
+			fmt.Printf("📁 Mounting %s (%s:%d)...\n", targetName, targetIP, targetPort)
 			if err := m.Mount(targetIP, targetPort, token); err != nil {
 				fmt.Printf("❌ Mount error: %v\n", err)
 				return
@@ -174,19 +217,38 @@ var mountCmd = &cobra.Command{
 }
 
 var unmountCmd = &cobra.Command{
-	Use:   "unmount",
+	Use:   "unmount [device_name]",
 	Short: "Unmount phone drive",
 	Run: func(cmd *cobra.Command, args []string) {
 		cfg, _ := keyring.LoadConfig()
 		m := mount.GetMounter()
 
-		if cfg.LastServerIP == "" {
+		targetIP := cfg.LastServerIP
+		targetPort := cfg.LastServerPort
+
+		if len(args) > 0 {
+			targetName := args[0]
+			if dev, ok := cfg.PairedDevices[targetName]; ok {
+				targetIP = dev.IP
+				targetPort = dev.Port
+			} else {
+				for name, dev := range cfg.PairedDevices {
+					if strings.EqualFold(name, targetName) {
+						targetIP = dev.IP
+						targetPort = dev.Port
+						break
+					}
+				}
+			}
+		}
+
+		if targetIP == "" {
 			fmt.Println("❌ No known phone recorded. Run 'qsync mount' first.")
 			return
 		}
 
-		fmt.Println("Unmounting...")
-		if err := m.Unmount(cfg.LastServerIP, cfg.LastServerPort); err != nil {
+		fmt.Printf("Unmounting %s:%d...\n", targetIP, targetPort)
+		if err := m.Unmount(targetIP, targetPort); err != nil {
 			fmt.Printf("Notice: %v\n", err)
 		} else {
 			fmt.Println("✅ Unmounted successfully.")
@@ -196,42 +258,68 @@ var unmountCmd = &cobra.Command{
 
 var statusCmd = &cobra.Command{
 	Use:   "status",
-	Short: "Check connection and mount status",
+	Short: "Check connection and mount status of all devices",
 	Run: func(cmd *cobra.Command, args []string) {
 		cfg, _ := keyring.LoadConfig()
-		token, _ := keyring.GetToken("")
-
-		fmt.Println("qSync Status:")
-		fmt.Printf("  Pairing: ")
-		if token != "" {
-			fmt.Println("✅ Paired (Token stored in Keyring)")
-		} else {
-			fmt.Println("❌ Not paired (Run 'qsync pair')")
-		}
-
-		fmt.Printf("  Known Phone: %s (%s:%d)\n", cfg.LastServerName, cfg.LastServerIP, cfg.LastServerPort)
-
-		isReachable := false
-		if cfg.LastServerIP != "" {
-			isReachable = client.Ping(cfg.LastServerIP, cfg.LastServerPort)
-		}
-		fmt.Printf("  Network: ")
-		if isReachable {
-			fmt.Println("🟢 Online (Reachable on Wi-Fi)")
-		} else {
-			fmt.Println("🔴 Offline or not detected")
-		}
-
 		m := mount.GetMounter()
-		isMounted := false
-		if cfg.LastServerIP != "" {
-			isMounted, _ = m.IsMounted(cfg.LastServerIP, cfg.LastServerPort)
+
+		fmt.Println("qSync Multi-Device Status:")
+
+		if len(cfg.PairedDevices) == 0 && cfg.LastServerName == "" {
+			fmt.Println("  No paired devices. Run 'qsync pair' to add a device.")
+			return
 		}
-		fmt.Printf("  Mount:   ")
-		if isMounted {
-			fmt.Println("📂 Mounted in GVFS / Nautilus")
-		} else {
-			fmt.Println("Unmounted")
+
+		// Ensure primary device is represented
+		devicesToShow := make(map[string]keyring.DeviceInfo)
+		for k, v := range cfg.PairedDevices {
+			devicesToShow[k] = v
+		}
+		if cfg.LastServerName != "" {
+			if _, exists := devicesToShow[cfg.LastServerName]; !exists {
+				devicesToShow[cfg.LastServerName] = keyring.DeviceInfo{
+					Name: cfg.LastServerName,
+					IP:   cfg.LastServerIP,
+					Port: cfg.LastServerPort,
+				}
+			}
+		}
+
+		for name, dev := range devicesToShow {
+			deviceKey := keyring.NormalizeServerKey(name)
+			token, _ := keyring.GetToken(deviceKey)
+			if token == "" {
+				token, _ = keyring.GetToken("")
+			}
+
+			isReachable := false
+			if dev.IP != "" {
+				isReachable = client.Ping(dev.IP, dev.Port)
+			}
+
+			isMounted := false
+			if dev.IP != "" {
+				isMounted, _ = m.IsMounted(dev.IP, dev.Port)
+			}
+
+			fmt.Printf("\n📱 Device: %s (%s:%d)\n", name, dev.IP, dev.Port)
+			if token != "" {
+				fmt.Println("   Pairing:  ✅ Paired")
+			} else {
+				fmt.Println("   Pairing:  ❌ Token not found")
+			}
+
+			if isReachable {
+				fmt.Println("   Network:  🟢 Online")
+			} else {
+				fmt.Println("   Network:  🔴 Offline")
+			}
+
+			if isMounted {
+				fmt.Println("   Mount:    📂 Mounted in GVFS / Nautilus")
+			} else {
+				fmt.Println("   Mount:    ⚪ Unmounted")
+			}
 		}
 	},
 }
