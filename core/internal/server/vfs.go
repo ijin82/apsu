@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bufio"
 	"context"
 	"io"
 	"os"
@@ -125,6 +126,11 @@ func (v *VirtualFS) OpenFile(ctx context.Context, name string, flag int, perm os
 	// If opening the top folder itself ("/"), wrap its File to report the virtual name
 	if sub == "/" {
 		return &folderRootFile{File: f, virtualName: folder.Name}, nil
+	}
+
+	// If opening for write, wrap in bufferedFileWriter (256 KB buffer) to optimize Android flash writes
+	if flag&(os.O_WRONLY|os.O_RDWR) != 0 {
+		return newBufferedFileWriter(f, 256*1024), nil
 	}
 
 	return f, nil
@@ -295,3 +301,38 @@ func (f *folderRootFile) Stat() (os.FileInfo, error) {
 // Ensure interface compliance
 var _ webdav.FileSystem = (*VirtualFS)(nil)
 var _ webdav.File = (*virtualRootDir)(nil)
+var _ webdav.File = (*bufferedFileWriter)(nil)
+
+// bufferedFileWriter buffers file writes in RAM before committing to flash storage,
+// dramatically reducing write IOPS and system call overhead on Android flash memory.
+type bufferedFileWriter struct {
+	webdav.File
+	bw *bufio.Writer
+}
+
+func newBufferedFileWriter(f webdav.File, bufSize int) *bufferedFileWriter {
+	return &bufferedFileWriter{
+		File: f,
+		bw:   bufio.NewWriterSize(f, bufSize),
+	}
+}
+
+func (b *bufferedFileWriter) Write(p []byte) (int, error) {
+	return b.bw.Write(p)
+}
+
+func (b *bufferedFileWriter) Seek(offset int64, whence int) (int64, error) {
+	if err := b.bw.Flush(); err != nil {
+		return 0, err
+	}
+	return b.File.Seek(offset, whence)
+}
+
+func (b *bufferedFileWriter) Close() error {
+	flushErr := b.bw.Flush()
+	closeErr := b.File.Close()
+	if flushErr != nil {
+		return flushErr
+	}
+	return closeErr
+}

@@ -10,7 +10,7 @@ build_arch() {
   local arch="$1"
   local goarch="$2"
   local goarm="$3"
-  local clang_bin="$4"
+  local clang_target="$4"
   local out_dir="$REPO_ROOT/android/app/src/main/jniLibs/$arch"
 
   echo "==> Building libqsyncserver.so for $arch (GOARCH=$goarch)..."
@@ -25,7 +25,9 @@ build_arch() {
     -e GOPATH=/go \
     fyneio/fyne-cross-images:android sh -c \
     "export PATH=/go/bin:/usr/local/go/bin:\$PATH; \
-     export CC='/usr/local/android_sdk/ndk-bundle/toolchains/llvm/prebuilt/linux-x86_64/bin/$clang_bin'; \
+     printf '#!/bin/bash\n/usr/local/android_sdk/ndk-bundle/toolchains/llvm/prebuilt/linux-x86_64/bin/clang --target=%s \"\$@\"\n' '$clang_target' > /tmp/target-clang; \
+     chmod +x /tmp/target-clang; \
+     export CC=/tmp/target-clang; \
      CGO_ENABLED=1 GOOS=android GOARCH=$goarch GOARM=$goarm go build -buildmode=c-shared -o /core/libqsyncserver.so ./jni_bridge.go"
 
   cp "$REPO_ROOT/core/libqsyncserver.so" "$out_dir/libqsyncserver.so"
@@ -35,18 +37,18 @@ build_arch() {
 
 case "$TARGET" in
   arm64|arm64-v8a)
-    build_arch "arm64-v8a" "arm64" "" "aarch64-linux-android31-clang"
+    build_arch "arm64-v8a" "arm64" "" "aarch64-linux-android33"
     ;;
   arm|armeabi-v7a)
-    build_arch "armeabi-v7a" "arm" "7" "armv7a-linux-androideabi33-clang"
+    build_arch "armeabi-v7a" "arm" "7" "armv7a-linux-androideabi33"
     ;;
   x86_64)
-    build_arch "x86_64" "amd64" "" "x86_64-linux-android33-clang"
+    build_arch "x86_64" "amd64" "" "x86_64-linux-android33"
     ;;
   all)
-    build_arch "arm64-v8a" "arm64" "" "aarch64-linux-android31-clang"
-    build_arch "armeabi-v7a" "arm" "7" "armv7a-linux-androideabi33-clang"
-    build_arch "x86_64" "amd64" "" "x86_64-linux-android33-clang"
+    build_arch "arm64-v8a" "arm64" "" "aarch64-linux-android33"
+    build_arch "armeabi-v7a" "arm" "7" "armv7a-linux-androideabi33"
+    build_arch "x86_64" "amd64" "" "x86_64-linux-android33"
     ;;
   *)
     echo "Usage: $0 [arm64|arm|x86_64|all]"

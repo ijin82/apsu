@@ -55,13 +55,13 @@ enum class AppThemeMode {
 }
 
 private val DarkColors = darkColorScheme(
-    primary = Color(0xFF9FA8DA),
-    secondary = Color(0xFF64B5F6),
+    primary = Color(0xFF3D5AFE),       // Rich vivid royal blue
+    secondary = Color(0xFF2979FF),     // Vibrant blue accent
     background = Color(0xFF121418),
     surface = Color(0xFF1E2228),
     surfaceVariant = Color(0xFF282D36),
-    onPrimary = Color(0xFF121418),
-    onSecondary = Color(0xFF121418),
+    onPrimary = Color.White,
+    onSecondary = Color.White,
     onBackground = Color(0xFFE2E2E6),
     onSurface = Color(0xFFE2E2E6),
     onSurfaceVariant = Color(0xFFC4C7D0)
