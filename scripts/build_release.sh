@@ -31,7 +31,7 @@ echo "=========================================================="
 # 1. Build Linux CLI binary
 echo "[1/4] Compiling Linux CLI binary..."
 mkdir -p "${ROOT_DIR}/cli"
-(cd "${ROOT_DIR}/cli" && go build -o qsync ./cmd/qsync)
+(cd "${ROOT_DIR}/cli" && go build -ldflags="-s -w" -o qsync ./cmd/qsync)
 
 # 2. Build Android native core (arm64-v8a) & APK
 echo "[2/4] Building optimized Android arm64-v8a native core & APK..."

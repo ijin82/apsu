@@ -51,7 +51,7 @@ install_qsync() {
         cp "${ROOT_DIR}/cli/qsync" "${BIN_DIR}/qsync"
     elif command -v go >/dev/null 2>&1 && [ -d "${ROOT_DIR}/cli" ]; then
         print_info "Building CLI binary from source (${ROOT_DIR}/cli)..."
-        (cd "${ROOT_DIR}/cli" && go build -o "${BIN_DIR}/qsync" ./cmd/qsync)
+        (cd "${ROOT_DIR}/cli" && go build -ldflags="-s -w" -o "${BIN_DIR}/qsync" ./cmd/qsync)
     else
         print_error "qsync binary not found and cannot compile. Please ensure 'qsync' exists or Go is installed."
         exit 1
