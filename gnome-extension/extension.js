@@ -248,7 +248,7 @@ export default class QSyncExtension extends Extension {
 
         // 1. Top Bar Panel Indicator
         this._indicator = new PanelMenu.Button(0.0, this.metadata.name, false);
-        this._indicator.visible = false;
+        this._indicator.visible = true;
 
         this._icon = new St.Icon({
             icon_name: 'phone-symbolic',
@@ -264,7 +264,6 @@ export default class QSyncExtension extends Extension {
         Main.panel.statusArea.quickSettings.addExternalIndicator(this._qsIndicator);
 
         this._initDBus();
-        this._checkInitialDaemon();
     }
 
     disable() {
@@ -346,7 +345,6 @@ export default class QSyncExtension extends Extension {
             this._startDaemon();
             this._startPolling();
         } else {
-            this._indicator.visible = false;
             this._stopDaemon();
             this._stopPolling();
             this._updateUIState([]);
@@ -386,7 +384,7 @@ export default class QSyncExtension extends Extension {
         if (!this._proxy) return;
 
         this._proxy.GetDevicesJSONRemote((result, error) => {
-            if (!error && result && result[0]) {
+            if (!error && result !== undefined) {
                 this._isActive = true;
                 this._indicator.visible = true;
                 this._startPolling();
@@ -418,11 +416,14 @@ export default class QSyncExtension extends Extension {
                 'org.qsync.Daemon',
                 '/org/qsync/Daemon',
                 (proxy, error) => {
-                    if (error) return;
+                    if (error) {
+                        return;
+                    }
+                    this._isActive = true;
                     this._signalId = proxy.connectSignal('StatusChanged', () => {
                         this._refreshStatus();
                     });
-                    this._checkInitialDaemon();
+                    this._startPolling();
                 }
             );
         } catch (e) {}
