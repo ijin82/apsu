@@ -28,24 +28,26 @@ type DeviceStatus struct {
 }
 
 type DaemonService struct {
-	mu             sync.RWMutex
-	conn           *godbus.Conn
-	mounter        mount.Mounter
-	phoneFound     bool
-	phoneName      string
-	phoneIP        string
-	phonePort      int
-	isMounted      bool
-	devices        map[string]DeviceStatus // key: IP
-	stopChan       chan struct{}
+	mu              sync.RWMutex
+	conn            *godbus.Conn
+	mounter         mount.Mounter
+	phoneFound      bool
+	phoneName       string
+	phoneIP         string
+	phonePort       int
+	isMounted       bool
+	devices         map[string]DeviceStatus // key: IP
+	manualUnmounted map[string]bool         // key: IP, remembers manual unmount for the active session
+	stopChan        chan struct{}
 }
 
 func NewDaemonService(conn *godbus.Conn) *DaemonService {
 	return &DaemonService{
-		conn:     conn,
-		mounter:  mount.GetMounter(),
-		devices:  make(map[string]DeviceStatus),
-		stopChan: make(chan struct{}),
+		conn:            conn,
+		mounter:         mount.GetMounter(),
+		devices:         make(map[string]DeviceStatus),
+		manualUnmounted: make(map[string]bool),
+		stopChan:        make(chan struct{}),
 	}
 }
 
@@ -204,6 +206,8 @@ func (d *DaemonService) MountDevice(name string, ip string, port int) (bool, str
 		return false, err.Error(), nil
 	}
 
+	delete(d.manualUnmounted, targetIP)
+
 	if dev, ok := d.devices[targetIP]; ok {
 		dev.IsMounted = true
 		d.devices[targetIP] = dev
@@ -257,6 +261,9 @@ func (d *DaemonService) UnmountDevice(name string, ip string, port int) (bool, s
 	if err := d.mounter.Unmount(targetIP, targetPort); err != nil {
 		return false, err.Error(), nil
 	}
+
+	// Mark as manually unmounted so auto-mount won't re-mount it during this session
+	d.manualUnmounted[targetIP] = true
 
 	if dev, ok := d.devices[targetIP]; ok {
 		dev.IsMounted = false
@@ -398,29 +405,42 @@ func (d *DaemonService) checkStatus() {
 	}
 
 	// Auto-mount paired devices that come online; auto-unmount devices that went offline
+	d.mu.Lock()
 	for ip, dev := range newDevices {
-		if dev.IsOnline && dev.IsPaired && !dev.IsMounted {
-			// Device is online, paired, and not mounted -> Auto-mount
-			deviceKey := keyring.NormalizeServerKey(dev.Name)
-			token, _ := keyring.GetToken(deviceKey)
-			if token == "" {
-				token, _ = keyring.GetToken("")
+		if dev.IsOnline {
+			// If device was mounted and is still mounted, clear manualUnmounted
+			if dev.IsMounted {
+				delete(d.manualUnmounted, ip)
+			} else if dev.IsPaired && !d.manualUnmounted[ip] {
+				// Device is online, paired, not mounted, and not manually unmounted in this session -> Auto-mount
+				deviceKey := keyring.NormalizeServerKey(dev.Name)
+				token, _ := keyring.GetToken(deviceKey)
+				if token == "" {
+					token, _ = keyring.GetToken("")
+				}
+				if token != "" {
+					if err := d.mounter.Mount(dev.IP, dev.Port, token); err == nil {
+						dev.IsMounted = true
+						newDevices[ip] = dev
+						delete(d.manualUnmounted, ip)
+					}
+				}
 			}
-			if token != "" {
-				if err := d.mounter.Mount(dev.IP, dev.Port, token); err == nil {
-					dev.IsMounted = true
+		} else {
+			// Device went offline -> Clean up manualUnmounted flag so next time it joins, it auto-mounts freshly
+			delete(d.manualUnmounted, ip)
+
+			if dev.IsMounted {
+				// Double check with ping before unmounting
+				if !client.Ping(dev.IP, dev.Port) {
+					_ = d.mounter.Unmount(dev.IP, dev.Port)
+					dev.IsMounted = false
 					newDevices[ip] = dev
 				}
 			}
-		} else if !dev.IsOnline && dev.IsMounted {
-			// Device went offline but was mounted -> Double check with ping before unmounting
-			if !client.Ping(dev.IP, dev.Port) {
-				_ = d.mounter.Unmount(dev.IP, dev.Port)
-				dev.IsMounted = false
-				newDevices[ip] = dev
-			}
 		}
 	}
+	d.mu.Unlock()
 
 	// Determine primary phone for backwards compatibility
 	var primaryFound bool
