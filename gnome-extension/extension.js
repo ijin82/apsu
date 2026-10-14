@@ -248,7 +248,7 @@ export default class QSyncExtension extends Extension {
 
         // 1. Top Bar Panel Indicator
         this._indicator = new PanelMenu.Button(0.0, this.metadata.name, false);
-        this._indicator.visible = true;
+        this._indicator.visible = false;
 
         this._icon = new St.Icon({
             icon_name: 'phone-symbolic',
@@ -340,8 +340,11 @@ export default class QSyncExtension extends Extension {
     toggleActive(active) {
         this._isActive = active;
 
+        if (this._indicator) {
+            this._indicator.visible = active;
+        }
+
         if (active) {
-            this._indicator.visible = true;
             this._startDaemon();
             this._startPolling();
         } else {
@@ -420,6 +423,9 @@ export default class QSyncExtension extends Extension {
                         return;
                     }
                     this._isActive = true;
+                    if (this._indicator) {
+                        this._indicator.visible = true;
+                    }
                     this._signalId = proxy.connectSignal('StatusChanged', () => {
                         this._refreshStatus();
                     });
@@ -481,6 +487,9 @@ export default class QSyncExtension extends Extension {
         }
 
         // 2. Update Top Bar Panel Indicator Icon
+        if (this._indicator) {
+            this._indicator.visible = this._isActive;
+        }
         if (!this._icon || !this._menuHeader) return;
 
         this._icon.style_class = 'system-status-icon';
