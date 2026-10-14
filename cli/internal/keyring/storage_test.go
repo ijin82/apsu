@@ -57,3 +57,49 @@ func TestUpdatePairedDevice(t *testing.T) {
 		t.Fatalf("expected token under Phone B key, got %s", token)
 	}
 }
+
+func TestSyncMappings(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tempDir)
+
+	// Test EnsureSyncFoldersInConfig
+	folders := []string{"Audiobooks", "Notes"}
+	err := EnsureSyncFoldersInConfig("Phone A", folders)
+	if err != nil {
+		t.Fatalf("EnsureSyncFoldersInConfig failed: %v", err)
+	}
+
+	mappings := GetSyncMappings("Phone A")
+	if len(mappings) != 2 {
+		t.Fatalf("expected 2 mappings, got %d", len(mappings))
+	}
+	if path, ok := mappings["Audiobooks"]; !ok || path != "" {
+		t.Fatalf("expected empty path for Audiobooks, got '%s'", path)
+	}
+
+	// Test SetSyncMapping
+	err = SetSyncMapping("Phone A", "Audiobooks", "/home/user/Audiobooks")
+	if err != nil {
+		t.Fatalf("SetSyncMapping failed: %v", err)
+	}
+
+	mappings = GetSyncMappings("Phone A")
+	if mappings["Audiobooks"] != "/home/user/Audiobooks" {
+		t.Fatalf("expected /home/user/Audiobooks, got %s", mappings["Audiobooks"])
+	}
+
+	// Test rename preservation
+	err = UpdatePairedDevice("Phone A", "192.168.1.10", 8484, "token-123")
+	if err != nil {
+		t.Fatalf("initial pair failed: %v", err)
+	}
+	err = UpdatePairedDevice("Phone B", "192.168.1.10", 8484, "token-123")
+	if err != nil {
+		t.Fatalf("rename failed: %v", err)
+	}
+
+	bMappings := GetSyncMappings("Phone B")
+	if bMappings["Audiobooks"] != "/home/user/Audiobooks" {
+		t.Fatalf("expected mappings migrated to Phone B, got %v", bMappings)
+	}
+}

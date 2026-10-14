@@ -10,9 +10,10 @@ import (
 )
 
 type SharedFolder struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-	Path string `json:"path"`
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Path   string `json:"path"`
+	IsSync bool   `json:"is_sync,omitempty"`
 }
 
 type TrustedDevice struct {
@@ -139,6 +140,10 @@ func (m *Manager) GetConfig() Config {
 }
 
 func (m *Manager) AddFolder(name, folderPath string) (SharedFolder, error) {
+	return m.AddFolderSync(name, folderPath, false)
+}
+
+func (m *Manager) AddFolderSync(name, folderPath string, isSync bool) (SharedFolder, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -155,9 +160,10 @@ func (m *Manager) AddFolder(name, folderPath string) (SharedFolder, error) {
 
 	id := fmt.Sprintf("f_%d", time.Now().UnixNano())
 	folder := SharedFolder{
-		ID:   id,
-		Name: name,
-		Path: normalized,
+		ID:     id,
+		Name:   name,
+		Path:   normalized,
+		IsSync: isSync,
 	}
 	m.config.Folders = append(m.config.Folders, folder)
 	return folder, m.saveLocked()

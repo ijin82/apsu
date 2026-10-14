@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"qsync/cli/internal/discovery"
 	"qsync/cli/internal/keyring"
 	"qsync/cli/internal/mount"
+	qsyncsync "qsync/cli/internal/sync"
 )
 
 var rootCmd = &cobra.Command{
@@ -28,8 +30,8 @@ var scanCmd = &cobra.Command{
 	Use:   "scan",
 	Short: "Scan local network for active qSync phones",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("🔍 Scanning local network for qSync devices (2s)...")
-		devices, err := discovery.Scan(2 * time.Second)
+		fmt.Println("🔍 Scanning local network for qSync devices (3s)...")
+		devices, err := discovery.Scan(3 * time.Second)
 		if err != nil {
 			fmt.Printf("❌ Scan error: %v\n", err)
 			return
@@ -391,6 +393,143 @@ var daemonCmd = &cobra.Command{
 	},
 }
 
+var (
+	syncList bool
+	syncMap  string
+)
+
+var syncCmd = &cobra.Command{
+	Use:   "sync [device_name]",
+	Short: "Synchronize desktop folders to phone (Desktop ➔ Phone One-Way Sync)",
+	Run: func(cmd *cobra.Command, args []string) {
+		cfg, _ := keyring.LoadConfig()
+		targetName := cfg.LastServerName
+		if len(args) > 0 {
+			targetName = args[0]
+		}
+		if targetName == "" {
+			for name := range cfg.PairedDevices {
+				targetName = name
+				break
+			}
+		}
+
+		if targetName == "" {
+			fmt.Println("❌ No device specified and no paired devices found. Run 'qsync pair' first.")
+			return
+		}
+
+		// Handle --map flag: e.g. --map "Music=/home/user/Music"
+		if syncMap != "" {
+			parts := strings.SplitN(syncMap, "=", 2)
+			if len(parts) != 2 {
+				fmt.Println("❌ Invalid --map format. Use: --map \"RemoteFolder=/path/to/local\"")
+				return
+			}
+			remoteFolder := strings.TrimSpace(parts[0])
+			localPath := strings.TrimSpace(parts[1])
+			absPath, err := filepath.Abs(localPath)
+			if err == nil {
+				localPath = absPath
+			}
+			if err := keyring.SetSyncMapping(targetName, remoteFolder, localPath); err != nil {
+				fmt.Printf("❌ Failed to save mapping: %v\n", err)
+				return
+			}
+			fmt.Printf("✅ Mapped remote folder '%s' to '%s' for device '%s'\n", remoteFolder, localPath, targetName)
+			return
+		}
+
+		// Handle --list flag
+		if syncList {
+			mappings := keyring.GetSyncMappings(targetName)
+			fmt.Printf("Sync Folder Mappings for '%s':\n", targetName)
+			if len(mappings) == 0 {
+				fmt.Println("  (No mappings configured yet. Run 'qsync sync' while device is online to discover folders)")
+				return
+			}
+			for rFolder, lPath := range mappings {
+				status := "configured"
+				if lPath == "" {
+					status = "unmapped (edit in ~/.config/qsync/client_config.json)"
+				} else if _, err := os.Stat(lPath); err != nil {
+					status = "local path not found"
+				}
+				fmt.Printf("  • %s -> %s [%s]\n", rFolder, lPath, status)
+			}
+			return
+		}
+
+		// Find device IP and port
+		targetIP := cfg.LastServerIP
+		targetPort := cfg.LastServerPort
+		if dev, ok := cfg.PairedDevices[targetName]; ok {
+			targetIP = dev.IP
+			targetPort = dev.Port
+		} else {
+			for name, dev := range cfg.PairedDevices {
+				if strings.EqualFold(name, targetName) {
+					targetIP = dev.IP
+					targetPort = dev.Port
+					targetName = name
+					break
+				}
+			}
+		}
+
+		if targetIP == "" {
+			devices, _ := discovery.Scan(2 * time.Second)
+			for _, dev := range devices {
+				if strings.EqualFold(dev.Name, targetName) {
+					targetIP = dev.IP
+					targetPort = dev.Port
+					break
+				}
+			}
+		}
+
+		if targetIP == "" {
+			fmt.Printf("❌ Device '%s' not found on local network.\n", targetName)
+			return
+		}
+		if targetPort <= 0 {
+			targetPort = 8484
+		}
+
+		deviceKey := keyring.NormalizeServerKey(targetName)
+		token, err := keyring.GetToken(deviceKey)
+		if err != nil || token == "" {
+			token, _ = keyring.GetToken("")
+		}
+		if token == "" {
+			fmt.Printf("❌ Device '%s' not paired yet. Please run 'qsync pair' first.\n", targetName)
+			return
+		}
+
+		if !client.VerifyToken(targetIP, targetPort, token) {
+			fmt.Println("❌ Device rejected saved token. Please run 'qsync pair' again.")
+			return
+		}
+
+		logger, _ := qsyncsync.NewSyncLogger("")
+		engine := qsyncsync.NewSyncEngine(logger)
+
+		fmt.Printf("🔄 Synchronizing folders for '%s' (%s:%d)...\n", targetName, targetIP, targetPort)
+		stats, summary, err := engine.SyncDevice(targetName, targetIP, targetPort, token)
+		if err != nil {
+			fmt.Printf("❌ Sync failed: %v\n", err)
+			return
+		}
+
+		fmt.Printf("✅ Sync completed: %s\n", summary)
+		if stats.ErrorCount > 0 {
+			fmt.Printf("⚠️ %d errors encountered. Check ~/.config/qsync/sync_history.log for details.\n", stats.ErrorCount)
+		} else {
+			fmt.Println("📁 All folders up to date! Log saved to ~/.config/qsync/sync_history.log")
+		}
+	},
+}
+
 func init() {
 	pairCmd.Flags().StringVar(&pairIP, "ip", "", "Phone IP address")
 	pairCmd.Flags().IntVar(&pairPort, "port", 8484, "Phone port")
@@ -398,11 +537,15 @@ func init() {
 
 	mountCmd.Flags().BoolVarP(&openAfterMount, "open", "o", false, "Open in file manager after mounting")
 
+	syncCmd.Flags().BoolVar(&syncList, "list", false, "List configured sync folders and their mappings")
+	syncCmd.Flags().StringVar(&syncMap, "map", "", "Set mapping: \"RemoteFolder=/path/to/local\"")
+
 	rootCmd.AddCommand(scanCmd)
 	rootCmd.AddCommand(pairCmd)
 	rootCmd.AddCommand(mountCmd)
 	rootCmd.AddCommand(unmountCmd)
 	rootCmd.AddCommand(statusCmd)
+	rootCmd.AddCommand(syncCmd)
 	rootCmd.AddCommand(daemonCmd)
 }
 

@@ -62,9 +62,42 @@ const QSyncIface = `
       <arg type="i" direction="in" name="port"/>
       <arg type="b" direction="out" name="success"/>
     </method>
+    <method name="GetSyncFolders">
+      <arg type="s" direction="in" name="name"/>
+      <arg type="s" direction="in" name="ip"/>
+      <arg type="i" direction="in" name="port"/>
+      <arg type="s" direction="out" name="jsonString"/>
+    </method>
+    <method name="SetSyncFolderMapping">
+      <arg type="s" direction="in" name="name"/>
+      <arg type="s" direction="in" name="remoteFolder"/>
+      <arg type="s" direction="in" name="localPath"/>
+      <arg type="b" direction="out" name="success"/>
+    </method>
+    <method name="SetSyncFolderMappings">
+      <arg type="s" direction="in" name="name"/>
+      <arg type="s" direction="in" name="jsonMappings"/>
+      <arg type="b" direction="out" name="success"/>
+    </method>
+    <method name="SyncDevice">
+      <arg type="s" direction="in" name="name"/>
+      <arg type="s" direction="in" name="ip"/>
+      <arg type="i" direction="in" name="port"/>
+      <arg type="b" direction="out" name="success"/>
+      <arg type="s" direction="out" name="summaryMsg"/>
+      <arg type="s" direction="out" name="errorMsg"/>
+    </method>
     <signal name="StatusChanged">
       <arg type="b" name="phoneFound"/>
       <arg type="b" name="isMounted"/>
+    </signal>
+    <signal name="SyncStarted">
+      <arg type="s" name="name"/>
+    </signal>
+    <signal name="SyncCompleted">
+      <arg type="s" name="name"/>
+      <arg type="b" name="success"/>
+      <arg type="s" name="message"/>
     </signal>
   </interface>
 </node>`;
@@ -153,6 +186,246 @@ class QSyncPairDialog extends ModalDialog.ModalDialog {
                 this._errorLabel.visible = true;
             }
         });
+    }
+});
+
+// Modal Sync Settings Dialog
+const QSyncSettingsDialog = GObject.registerClass(
+class QSyncSettingsDialog extends ModalDialog.ModalDialog {
+    _init(extension, targetDev) {
+        super._init({ styleClass: 'qsync-settings-dialog' });
+        this._ext = extension;
+        this._targetDev = targetDev;
+        this._entries = {};
+
+        const content = new St.BoxLayout({
+            vertical: true,
+            style: 'padding: 20px; spacing: 14px; min-width: 560px; max-width: 720px;',
+        });
+
+        const devName = targetDev ? (targetDev.name || 'Phone') : 'Phone';
+        const title = new St.Label({
+            text: `Sync Settings - ${devName}`,
+            style: 'font-weight: bold; font-size: 1.3em; text-align: center;',
+        });
+        content.add_child(title);
+
+        const desc = new St.Label({
+            text: 'Map each phone sync folder to a desktop source folder (Desktop ➔ Phone One-Way Sync):',
+            style: 'color: #9a9996; font-size: 0.95em;',
+        });
+        content.add_child(desc);
+
+        this._foldersContainer = new St.BoxLayout({
+            vertical: true,
+            style: 'spacing: 12px; margin-top: 10px;',
+        });
+        content.add_child(this._foldersContainer);
+
+        const loadingLabel = new St.Label({
+            text: 'Loading syncable folders from phone...',
+            style: 'color: #9a9996; font-style: italic;',
+        });
+        this._foldersContainer.add_child(loadingLabel);
+
+        this.contentLayout.add_child(content);
+
+        this.addButton({
+            label: 'Cancel',
+            action: () => this.close(),
+            key: Clutter.KEY_Escape,
+        });
+
+        this._saveButton = this.addButton({
+            label: 'Save',
+            action: () => this._onSave(),
+            isDefault: true,
+            key: Clutter.KEY_Return,
+        });
+
+        this._loadFolders();
+    }
+
+    _loadFolders() {
+        if (!this._ext._proxy) return;
+
+        const devName = this._targetDev ? this._targetDev.name : '';
+        const devIP = this._targetDev ? this._targetDev.ip : '';
+        const devPort = this._targetDev ? (this._targetDev.port || 8484) : 8484;
+
+        this._ext._proxy.GetSyncFoldersRemote(devName, devIP, devPort, (result, err) => {
+            this._foldersContainer.destroy_all_children();
+            if (err || !result || !result[0]) {
+                const errLabel = new St.Label({
+                    text: 'Failed to retrieve sync folders from phone. Ensure phone is online and paired.',
+                    style: 'color: #e01b24;',
+                });
+                this._foldersContainer.add_child(errLabel);
+                return;
+            }
+
+            let folders = [];
+            try {
+                folders = JSON.parse(result[0]);
+            } catch (e) {
+                folders = [];
+            }
+
+            if (folders.length === 0) {
+                const emptyLabel = new St.Label({
+                    text: 'No syncable folders found on phone. In the phone app, enable "Syncable folder" when sharing a folder.',
+                    style: 'color: #9a9996; font-style: italic;',
+                });
+                this._foldersContainer.add_child(emptyLabel);
+                return;
+            }
+
+            folders.forEach(f => {
+                const folderBox = new St.BoxLayout({
+                    vertical: true,
+                    style: 'spacing: 6px; padding: 10px; background-color: rgba(255,255,255,0.06); border-radius: 8px;',
+                });
+
+                const headerBox = new St.BoxLayout({ vertical: false, style: 'spacing: 8px;' });
+                const icon = new St.Icon({ icon_name: 'folder-symbolic', icon_size: 16 });
+                const nameLabel = new St.Label({
+                    text: `Phone Target: ${f.name}`,
+                    style: 'font-weight: bold; font-size: 1.05em;',
+                });
+                headerBox.add_child(icon);
+                headerBox.add_child(nameLabel);
+                folderBox.add_child(headerBox);
+
+                const rowBox = new St.BoxLayout({
+                    vertical: false,
+                    style: 'spacing: 8px; margin-top: 4px;',
+                });
+
+                const entry = new St.Entry({
+                    text: f.localPath || '',
+                    hint_text: 'Not synced (click Browse or type path)',
+                    can_focus: true,
+                    style: 'padding: 6px 10px; font-size: 0.95em; min-width: 310px;',
+                });
+                this._entries[f.name] = entry;
+                rowBox.add_child(entry);
+
+                const browseBtn = new St.Button({
+                    label: 'Browse...',
+                    style_class: 'button',
+                    style: 'padding: 6px 12px;',
+                    can_focus: true,
+                });
+                browseBtn.connect('clicked', () => {
+                    this._onBrowse(f.name, entry, browseBtn);
+                });
+                rowBox.add_child(browseBtn);
+
+                const dontSyncBtn = new St.Button({
+                    label: "Don't sync",
+                    style_class: 'button',
+                    style: 'padding: 6px 12px;',
+                    can_focus: true,
+                });
+                dontSyncBtn.connect('clicked', () => {
+                    entry.set_text('');
+                });
+                rowBox.add_child(dontSyncBtn);
+
+                folderBox.add_child(rowBox);
+                this._foldersContainer.add_child(folderBox);
+            });
+        });
+    }
+
+    _onBrowse(folderName, entry, browseBtn) {
+        if (browseBtn) browseBtn.reactive = false;
+
+        const hadModal = this._hasModal;
+        if (hadModal) {
+            this.popModal();
+        }
+        // Temporarily hide the modal dialog so the external Zenity file picker
+        // is directly visible in the foreground (GNOME Shell modalDialogGroup sits above all client windows)
+        this.hide();
+
+        const restoreModal = () => {
+            if (browseBtn) browseBtn.reactive = true;
+            this.show();
+            if (hadModal && !this._hasModal) {
+                this.pushModal();
+            }
+        };
+
+        try {
+            const title = `Select desktop source folder for ${folderName}`;
+            const launcher = new Gio.SubprocessLauncher({
+                flags: Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE,
+            });
+            launcher.set_environ(GLib.get_environ());
+            launcher.setenv('GDK_BACKEND', 'x11', true);
+
+            const argv = [
+                'zenity',
+                '--file-selection',
+                '--directory',
+                '--modal',
+                `--title=${title}`,
+            ];
+
+            const currentPath = entry.get_text().trim();
+            if (currentPath && GLib.file_test(currentPath, GLib.FileTest.IS_DIR)) {
+                argv.push(`--filename=${currentPath}/`);
+            }
+
+            const proc = launcher.spawnv(argv);
+
+            proc.communicate_utf8_async(null, null, (p, res) => {
+                try {
+                    const [ok, stdout] = p.communicate_utf8_finish(res);
+                    if (ok && stdout) {
+                        const selectedPath = stdout.trim();
+                        if (selectedPath) {
+                            entry.set_text(selectedPath);
+                        }
+                    }
+                } catch (e) {
+                    // User cancelled or closed dialog
+                } finally {
+                    restoreModal();
+                }
+            });
+        } catch (e) {
+            restoreModal();
+        }
+    }
+
+    _onSave() {
+        if (!this._ext._proxy) return;
+        const devName = this._targetDev ? this._targetDev.name : '';
+        const mappings = {};
+        const forbiddenPaths = new Set(['/', '/home', '/etc', '/usr', '/var', '/bin', '/boot', '/root', GLib.get_home_dir()]);
+
+        for (const [folderName, entry] of Object.entries(this._entries)) {
+            const path = entry.get_text().trim();
+            if (path) {
+                const clean = path.replace(/\/+$/, '') || '/';
+                if (forbiddenPaths.has(clean)) {
+                    Main.notify('qSync Error', `Cannot map '${clean}'. System roots and home directory cannot be synced.`);
+                    return;
+                }
+            }
+            mappings[folderName] = path;
+        }
+
+        this._ext._proxy.SetSyncFolderMappingsRemote(devName, JSON.stringify(mappings), () => {
+            if (this._ext) {
+                this._ext._refreshStatus();
+            }
+        });
+
+        this.close();
+        Main.notify('qSync', 'Sync folder settings saved.');
     }
 });
 
@@ -259,6 +532,9 @@ export default class QSyncExtension extends Extension {
         this._phonePort = 8484;
         this._daemonProc = null;
         this._pairDialog = null;
+        this._settingsDialog = null;
+        this._syncingDevices = new Set();
+        this._lastDevices = [];
 
         // 1. Top Bar Panel Indicator
         this._indicator = new PanelMenu.Button(0.0, this.metadata.name, false);
@@ -288,9 +564,24 @@ export default class QSyncExtension extends Extension {
             this._pairDialog = null;
         }
 
+        if (this._settingsDialog) {
+            this._settingsDialog.close();
+            this._settingsDialog = null;
+        }
+
         if (this._signalId && this._proxy) {
             this._proxy.disconnectSignal(this._signalId);
             this._signalId = null;
+        }
+
+        if (this._syncStartedSignalId && this._proxy) {
+            this._proxy.disconnectSignal(this._syncStartedSignalId);
+            this._syncStartedSignalId = null;
+        }
+
+        if (this._syncSignalId && this._proxy) {
+            this._proxy.disconnectSignal(this._syncSignalId);
+            this._syncSignalId = null;
         }
 
         if (this._indicator) {
@@ -303,6 +594,8 @@ export default class QSyncExtension extends Extension {
             this._qsIndicator = null;
         }
 
+        this._syncingDevices = null;
+        this._lastDevices = null;
         this._proxy = null;
     }
 
@@ -361,6 +654,10 @@ export default class QSyncExtension extends Extension {
         } else {
             this._stopDaemon();
             this._stopPolling();
+            if (this._syncingDevices) {
+                this._syncingDevices.clear();
+            }
+            this._renderedDevicesKey = '';
             this._updateUIState([]);
         }
     }
@@ -382,6 +679,17 @@ export default class QSyncExtension extends Extension {
     }
 
     _stopDaemon() {
+        // Also force-unmount any dav mounts for qsync in user session
+        try {
+            if (this._lastDevices && this._lastDevices.length > 0) {
+                this._lastDevices.forEach(d => {
+                    const port = d.port || 8484;
+                    GLib.spawn_command_line_async(`gio mount -u -f dav://qsync@${d.ip}:${port}/`);
+                    GLib.spawn_command_line_async(`gio mount -u -f dav://${d.ip}:${port}/`);
+                });
+            }
+        } catch (e) {}
+
         try {
             GLib.spawn_command_line_async('systemctl --user stop qsync.service');
         } catch (e) {}
@@ -440,6 +748,20 @@ export default class QSyncExtension extends Extension {
                     this._signalId = proxy.connectSignal('StatusChanged', () => {
                         this._refreshStatus();
                     });
+                    this._syncStartedSignalId = proxy.connectSignal('SyncStarted', (_proxy, _sender, [device]) => {
+                        if (this._syncingDevices) {
+                            this._syncingDevices.add(device);
+                        }
+                        this._renderedDevicesKey = '';
+                        this._refreshStatus();
+                    });
+                    this._syncSignalId = proxy.connectSignal('SyncCompleted', (_proxy, _sender, [device, success, message]) => {
+                        if (this._syncingDevices) {
+                            this._syncingDevices.delete(device);
+                        }
+                        this._renderedDevicesKey = '';
+                        this._refreshStatus();
+                    });
                     this._startPolling();
                 }
             );
@@ -474,8 +796,20 @@ export default class QSyncExtension extends Extension {
     }
 
     _updateUIState(devices = []) {
+        this._lastDevices = devices;
+        if (this._syncingDevices) {
+            devices.forEach(d => {
+                if (d.isSyncing) {
+                    this._syncingDevices.add(d.name);
+                } else if (!d.isOnline) {
+                    // Device went offline -> clear sync state
+                    this._syncingDevices.delete(d.name);
+                }
+            });
+        }
         const anyMounted = devices.some(d => d.isMounted);
         const anyOnline = devices.some(d => d.isOnline);
+        const isAnySyncing = devices.some(d => d.isSyncing) || (this._syncingDevices && this._syncingDevices.size > 0);
 
         // Find primary device for quick toggle
         const primary = devices.find(d => d.isMounted) || devices.find(d => d.isOnline) || (devices.length > 0 ? devices[0] : null);
@@ -505,7 +839,10 @@ export default class QSyncExtension extends Extension {
         if (!this._icon || !this._menuHeader) return;
 
         this._icon.style_class = 'system-status-icon';
-        if (anyMounted) {
+        if (isAnySyncing) {
+            this._icon.icon_name = 'emblem-synchronizing-symbolic';
+            this._icon.add_style_class_name(anyMounted ? 'qsync-indicator-mounted' : 'qsync-indicator-online');
+        } else if (anyMounted) {
             this._icon.icon_name = 'drive-harddisk-symbolic';
             this._icon.add_style_class_name('qsync-indicator-mounted');
         } else if (anyOnline) {
@@ -531,7 +868,7 @@ export default class QSyncExtension extends Extension {
 
         // 3. Render Devices in Menu with cache key check to eliminate flicker
         if (this._devicesSection) {
-            const newKey = JSON.stringify(devices.map(d => `${d.name}_${d.ip}_${d.isOnline}_${d.isMounted}_${d.isPaired}`));
+            const newKey = JSON.stringify(devices.map(d => `${d.name}_${d.ip}_${d.isOnline}_${d.isMounted}_${d.isPaired}_${d.hasSyncFolders}_${d.isSyncing || (this._syncingDevices && this._syncingDevices.has(d.name))}`));
             if (newKey !== this._renderedDevicesKey) {
                 this._renderedDevicesKey = newKey;
                 this._devicesSection.removeAll();
@@ -556,6 +893,7 @@ export default class QSyncExtension extends Extension {
             statusText = dev.isPaired ? 'Ready' : 'Unpaired';
         }
 
+        const isThisSyncing = !!dev.isSyncing || (this._syncingDevices && this._syncingDevices.has(dev.name));
         const headerTitle = `📱 ${dev.name} (${dev.ip}) • ${statusText}`;
         const headerItem = new PopupMenu.PopupMenuItem(headerTitle, {reactive: false});
         section.addMenuItem(headerItem);
@@ -564,6 +902,21 @@ export default class QSyncExtension extends Extension {
             const openItem = new PopupMenu.PopupMenuItem('    📂 Open in Files');
             openItem.connect('activate', () => this.openDeviceInFileManager(dev.name, dev.ip, dev.port));
             section.addMenuItem(openItem);
+
+            if (dev.hasSyncFolders) {
+                if (isThisSyncing) {
+                    const syncingItem = new PopupMenu.PopupMenuItem('    ⏳ Sync in progress...', {reactive: false});
+                    section.addMenuItem(syncingItem);
+                } else {
+                    const syncNowItem = new PopupMenu.PopupMenuItem('    🔄 Sync Now');
+                    syncNowItem.connect('activate', () => this.syncDevice(dev.name, dev.ip, dev.port));
+                    section.addMenuItem(syncNowItem);
+                }
+
+                const syncSettingsItem = new PopupMenu.PopupMenuItem('    ⚙️ Sync Settings...');
+                syncSettingsItem.connect('activate', () => this.showSyncSettingsDialog(dev));
+                section.addMenuItem(syncSettingsItem);
+            }
 
             const unmountItem = new PopupMenu.PopupMenuItem('    ⏏ Unmount');
             unmountItem.connect('activate', () => this.unmountDevice(dev.name, dev.ip, dev.port));
@@ -579,11 +932,58 @@ export default class QSyncExtension extends Extension {
                 mountItem.connect('activate', () => this.mountDevice(dev.name, dev.ip, dev.port));
                 section.addMenuItem(mountItem);
 
+                if (dev.hasSyncFolders) {
+                    if (isThisSyncing) {
+                        const syncingItem = new PopupMenu.PopupMenuItem('    ⏳ Sync in progress...', {reactive: false});
+                        section.addMenuItem(syncingItem);
+                    } else {
+                        const syncNowItem = new PopupMenu.PopupMenuItem('    🔄 Sync Now');
+                        syncNowItem.connect('activate', () => this.syncDevice(dev.name, dev.ip, dev.port));
+                        section.addMenuItem(syncNowItem);
+                    }
+
+                    const syncSettingsItem = new PopupMenu.PopupMenuItem('    ⚙️ Sync Settings...');
+                    syncSettingsItem.connect('activate', () => this.showSyncSettingsDialog(dev));
+                    section.addMenuItem(syncSettingsItem);
+                }
+
                 const rePairItem = new PopupMenu.PopupMenuItem('    🔄 Re-pair Phone...');
                 rePairItem.connect('activate', () => this.showPairDialog(dev));
                 section.addMenuItem(rePairItem);
             }
         }
+    }
+
+    showSyncSettingsDialog(targetDev = null) {
+        if (this._settingsDialog) {
+            this._settingsDialog.close();
+            this._settingsDialog = null;
+        }
+        this._settingsDialog = new QSyncSettingsDialog(this, targetDev);
+        this._settingsDialog.connect('closed', () => {
+            this._settingsDialog = null;
+        });
+        this._settingsDialog.open();
+    }
+
+    syncDevice(name, ip, port) {
+        if (!this._proxy) return;
+        if (this._syncingDevices) {
+            this._syncingDevices.add(name);
+        }
+        this._renderedDevicesKey = '';
+        if (this._lastDevices) {
+            this._updateUIState(this._lastDevices);
+        }
+        this._proxy.SyncDeviceRemote(name, ip || '', port || 8484, (result, err) => {
+            if (err) {
+                if (this._syncingDevices) {
+                    this._syncingDevices.delete(name);
+                }
+                this._renderedDevicesKey = '';
+                this._refreshStatus();
+            }
+        });
     }
 
     mountPhone() {

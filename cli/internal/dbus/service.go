@@ -11,6 +11,7 @@ import (
 	"qsync/cli/internal/discovery"
 	"qsync/cli/internal/keyring"
 	"qsync/cli/internal/mount"
+	qsyncsync "qsync/cli/internal/sync"
 )
 
 const (
@@ -19,33 +20,44 @@ const (
 )
 
 type DeviceStatus struct {
-	Name      string `json:"name"`
-	IP        string `json:"ip"`
-	Port      int    `json:"port"`
-	IsOnline  bool   `json:"isOnline"`
-	IsMounted bool   `json:"isMounted"`
-	IsPaired  bool   `json:"isPaired"`
+	Name           string   `json:"name"`
+	IP             string   `json:"ip"`
+	Port           int      `json:"port"`
+	IsOnline       bool     `json:"isOnline"`
+	IsMounted      bool     `json:"isMounted"`
+	IsPaired       bool     `json:"isPaired"`
+	HasSyncFolders bool     `json:"hasSyncFolders"`
+	SyncFolders    []string `json:"syncFolders,omitempty"`
+	IsSyncing      bool     `json:"isSyncing"`
 }
 
 type DaemonService struct {
 	mu              sync.RWMutex
 	conn            *godbus.Conn
 	mounter         mount.Mounter
+	syncEngine      *qsyncsync.SyncEngine
+	syncLogger      *qsyncsync.SyncLogger
 	phoneFound      bool
 	phoneName       string
 	phoneIP         string
 	phonePort       int
 	isMounted       bool
 	devices         map[string]DeviceStatus // key: IP
+	syncingDevices  map[string]bool         // key: deviceName
 	manualUnmounted map[string]bool         // key: IP, remembers manual unmount for the active session
 	stopChan        chan struct{}
 }
 
 func NewDaemonService(conn *godbus.Conn) *DaemonService {
+	logger, _ := qsyncsync.NewSyncLogger("")
+	engine := qsyncsync.NewSyncEngine(logger)
 	return &DaemonService{
 		conn:            conn,
 		mounter:         mount.GetMounter(),
+		syncEngine:      engine,
+		syncLogger:      logger,
 		devices:         make(map[string]DeviceStatus),
+		syncingDevices:  make(map[string]bool),
 		manualUnmounted: make(map[string]bool),
 		stopChan:        make(chan struct{}),
 	}
@@ -339,6 +351,189 @@ func (d *DaemonService) OpenDeviceInFileManager(name string, ip string, port int
 	return true, nil
 }
 
+type SyncFolderMappingDTO struct {
+	Name      string `json:"name"`
+	LocalPath string `json:"localPath"`
+}
+
+func (d *DaemonService) GetSyncFolders(deviceName, ip string, port int) (string, *godbus.Error) {
+	d.mu.RLock()
+	targetIP := ip
+	targetPort := port
+	targetName := deviceName
+	if targetIP == "" && targetName != "" {
+		for _, dev := range d.devices {
+			if strings.EqualFold(dev.Name, targetName) {
+				targetIP = dev.IP
+				targetPort = dev.Port
+				break
+			}
+		}
+	}
+	if targetIP == "" {
+		targetIP = d.phoneIP
+		targetPort = d.phonePort
+		targetName = d.phoneName
+	}
+	d.mu.RUnlock()
+
+	if targetIP == "" {
+		return "[]", nil
+	}
+	if targetPort <= 0 {
+		targetPort = 8484
+	}
+
+	info, err := client.FetchServerInfo(targetIP, targetPort)
+	if err != nil || info == nil {
+		return "[]", nil
+	}
+
+	mappings := keyring.GetSyncMappings(targetName)
+	var list []SyncFolderMappingDTO
+	var syncNames []string
+	for _, f := range info.Folders {
+		if f.IsSync {
+			syncNames = append(syncNames, f.Name)
+			list = append(list, SyncFolderMappingDTO{
+				Name:      f.Name,
+				LocalPath: mappings[f.Name],
+			})
+		}
+	}
+
+	_ = keyring.EnsureSyncFoldersInConfig(targetName, syncNames)
+
+	bytes, err := json.Marshal(list)
+	if err != nil {
+		return "[]", nil
+	}
+	return string(bytes), nil
+}
+
+func (d *DaemonService) SetSyncFolderMapping(deviceName, remoteFolder, localPath string) (bool, *godbus.Error) {
+	if deviceName == "" || remoteFolder == "" {
+		return false, godbus.NewError("org.qsync.Error.InvalidArgs", []interface{}{"Device name and remote folder are required"})
+	}
+	err := keyring.SetSyncMapping(deviceName, remoteFolder, localPath)
+	if err != nil {
+		return false, godbus.NewError("org.qsync.Error.SaveFailed", []interface{}{err.Error()})
+	}
+	return true, nil
+}
+
+func (d *DaemonService) SetSyncFolderMappings(deviceName, jsonMappings string) (bool, *godbus.Error) {
+	if deviceName == "" || jsonMappings == "" {
+		return false, godbus.NewError("org.qsync.Error.InvalidArgs", []interface{}{"Device name and jsonMappings are required"})
+	}
+	var mappings map[string]string
+	if err := json.Unmarshal([]byte(jsonMappings), &mappings); err != nil {
+		return false, godbus.NewError("org.qsync.Error.InvalidJSON", []interface{}{err.Error()})
+	}
+	if err := keyring.SetSyncMappingsBatch(deviceName, mappings); err != nil {
+		return false, godbus.NewError("org.qsync.Error.SaveFailed", []interface{}{err.Error()})
+	}
+	return true, nil
+}
+
+func (d *DaemonService) SyncDevice(deviceName, ip string, port int) (bool, string, string, *godbus.Error) {
+	d.mu.Lock()
+	targetIP := ip
+	targetPort := port
+	targetName := deviceName
+	if targetIP == "" && targetName != "" {
+		for _, dev := range d.devices {
+			if strings.EqualFold(dev.Name, targetName) {
+				targetIP = dev.IP
+				targetPort = dev.Port
+				break
+			}
+		}
+	}
+	if targetIP == "" {
+		targetIP = d.phoneIP
+		targetPort = d.phonePort
+		targetName = d.phoneName
+	}
+
+	if targetIP == "" {
+		d.mu.Unlock()
+		return false, "", "No device found to sync", nil
+	}
+	if targetPort <= 0 {
+		targetPort = 8484
+	}
+
+	// Prevent duplicate concurrent sync runs for the same device
+	if d.syncingDevices[targetName] {
+		d.mu.Unlock()
+		return false, "", "Sync already in progress for this device", nil
+	}
+
+	d.syncingDevices[targetName] = true
+	if dev, ok := d.devices[targetIP]; ok {
+		dev.IsSyncing = true
+		d.devices[targetIP] = dev
+	}
+	d.mu.Unlock()
+
+	deviceKey := keyring.NormalizeServerKey(targetName)
+	token, err := keyring.GetToken(deviceKey)
+	if err != nil || token == "" {
+		token, _ = keyring.GetToken("")
+	}
+	if token == "" {
+		d.mu.Lock()
+		delete(d.syncingDevices, targetName)
+		if dev, ok := d.devices[targetIP]; ok {
+			dev.IsSyncing = false
+			d.devices[targetIP] = dev
+		}
+		d.mu.Unlock()
+		return false, "", "Device is not paired yet. Please pair first.", nil
+	}
+
+	d.emitSyncStarted(targetName)
+	d.emitStatusChanged()
+
+	// Run sync in background goroutine to avoid blocking D-Bus calls or timing out
+	go func() {
+		defer func() {
+			d.mu.Lock()
+			delete(d.syncingDevices, targetName)
+			if dev, ok := d.devices[targetIP]; ok {
+				dev.IsSyncing = false
+				d.devices[targetIP] = dev
+			}
+			d.mu.Unlock()
+			d.emitStatusChanged()
+		}()
+
+		stats, summary, err := d.syncEngine.SyncDevice(targetName, targetIP, targetPort, token)
+		if err != nil {
+			d.emitSyncCompleted(targetName, false, err.Error())
+			return
+		}
+
+		success := stats.ErrorCount == 0
+		d.emitSyncCompleted(targetName, success, summary)
+	}()
+
+	return true, "Sync started", "", nil
+}
+
+func (d *DaemonService) emitSyncStarted(deviceName string) {
+	if d.conn != nil {
+		_ = d.conn.Emit(ObjectPath, InterfaceName+".SyncStarted", deviceName)
+	}
+}
+
+func (d *DaemonService) emitSyncCompleted(deviceName string, success bool, message string) {
+	if d.conn != nil {
+		_ = d.conn.Emit(ObjectPath, InterfaceName+".SyncCompleted", deviceName, success, message)
+	}
+}
+
 func (d *DaemonService) emitStatusChanged() {
 	if d.conn != nil {
 		_ = d.conn.Emit(ObjectPath, InterfaceName+".StatusChanged", d.phoneFound, d.isMounted)
@@ -409,13 +604,36 @@ func (d *DaemonService) checkStatus() {
 			}
 		}
 
+		var hasSyncFolders bool
+		var syncFolderNames []string
+		if isPaired {
+			if info, err := client.FetchServerInfo(disc.IP, disc.Port); err == nil && info != nil {
+				for _, f := range info.Folders {
+					if f.IsSync {
+						hasSyncFolders = true
+						syncFolderNames = append(syncFolderNames, f.Name)
+					}
+				}
+				if hasSyncFolders {
+					_ = keyring.EnsureSyncFoldersInConfig(name, syncFolderNames)
+				}
+			}
+		}
+
+		d.mu.RLock()
+		isSyncing := d.syncingDevices[name]
+		d.mu.RUnlock()
+
 		newDevices[disc.IP] = DeviceStatus{
-			Name:      name,
-			IP:        disc.IP,
-			Port:      disc.Port,
-			IsOnline:  true,
-			IsMounted: isMounted,
-			IsPaired:  isPaired,
+			Name:           name,
+			IP:             disc.IP,
+			Port:           disc.Port,
+			IsOnline:       true,
+			IsMounted:      isMounted,
+			IsPaired:       isPaired,
+			HasSyncFolders: hasSyncFolders,
+			SyncFolders:    syncFolderNames,
+			IsSyncing:      isSyncing,
 		}
 	}
 
@@ -454,13 +672,36 @@ func (d *DaemonService) checkStatus() {
 				isPaired = token != ""
 			}
 
+			var hasSyncFolders bool
+			var syncFolderNames []string
+			if isPaired && online {
+				if info, err := client.FetchServerInfo(p.IP, p.Port); err == nil && info != nil {
+					for _, f := range info.Folders {
+						if f.IsSync {
+							hasSyncFolders = true
+							syncFolderNames = append(syncFolderNames, f.Name)
+						}
+					}
+					if hasSyncFolders {
+						_ = keyring.EnsureSyncFoldersInConfig(name, syncFolderNames)
+					}
+				}
+			}
+
+			d.mu.RLock()
+			isSyncing := d.syncingDevices[name]
+			d.mu.RUnlock()
+
 			newDevices[p.IP] = DeviceStatus{
-				Name:      name,
-				IP:        p.IP,
-				Port:      p.Port,
-				IsOnline:  online,
-				IsMounted: isMounted,
-				IsPaired:  isPaired,
+				Name:           name,
+				IP:             p.IP,
+				Port:           p.Port,
+				IsOnline:       online,
+				IsMounted:      isMounted,
+				IsPaired:       isPaired,
+				HasSyncFolders: hasSyncFolders,
+				SyncFolders:    syncFolderNames,
+				IsSyncing:      isSyncing,
 			}
 		}
 	}
@@ -543,5 +784,29 @@ func (d *DaemonService) checkStatus() {
 
 func (d *DaemonService) Stop() {
 	close(d.stopChan)
+
+	// Unmount all currently mounted devices on daemon shutdown
+	d.mu.RLock()
+	var mountedIPs []struct {
+		ip   string
+		port int
+	}
+	for _, dev := range d.devices {
+		if dev.IsMounted {
+			port := dev.Port
+			if port <= 0 {
+				port = 8484
+			}
+			mountedIPs = append(mountedIPs, struct {
+				ip   string
+				port int
+			}{ip: dev.IP, port: port})
+		}
+	}
+	d.mu.RUnlock()
+
+	for _, m := range mountedIPs {
+		_ = d.mounter.Unmount(m.ip, m.port)
+	}
 }
 

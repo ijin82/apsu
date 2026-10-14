@@ -281,14 +281,15 @@ func (s *Server) handleFoldersAPI(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(cfg.Folders)
 	case http.MethodPost:
 		var req struct {
-			Name string `json:"name"`
-			Path string `json:"path"`
+			Name   string `json:"name"`
+			Path   string `json:"path"`
+			IsSync bool   `json:"is_sync"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		f, err := s.store.AddFolder(req.Name, req.Path)
+		f, err := s.store.AddFolderSync(req.Name, req.Path, req.IsSync)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return

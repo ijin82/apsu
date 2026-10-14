@@ -7,12 +7,14 @@ android {
     namespace = "io.github.ijin.qsync"
     compileSdk = 35
 
+    val appVersion = project.findProperty("appVersion") as? String ?: "1.2.5"
+
     defaultConfig {
         applicationId = "io.github.ijin.qsync"
         minSdk = 26
         targetSdk = 34
         versionCode = 1
-        versionName = "1.0.0"
+        versionName = appVersion
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -32,6 +34,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 

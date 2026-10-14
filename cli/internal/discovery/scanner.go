@@ -149,7 +149,7 @@ func scanSubnets(ctx context.Context, port int, out chan<- DiscoveredDevice) {
 				defer func() { <-semaphore }()
 
 				addr := fmt.Sprintf("%s:%d", targetIP, port)
-				dialer := net.Dialer{Timeout: 150 * time.Millisecond}
+				dialer := net.Dialer{Timeout: 600 * time.Millisecond}
 				conn, err := dialer.DialContext(ctx, "tcp", addr)
 				if err != nil {
 					return
@@ -157,7 +157,7 @@ func scanSubnets(ctx context.Context, port int, out chan<- DiscoveredDevice) {
 				_ = conn.Close()
 
 				// Fast HTTP probe
-				client := &http.Client{Timeout: 300 * time.Millisecond}
+				client := &http.Client{Timeout: 800 * time.Millisecond}
 				req, err := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf("http://%s:%d/", targetIP, port), nil)
 				if err != nil {
 					return

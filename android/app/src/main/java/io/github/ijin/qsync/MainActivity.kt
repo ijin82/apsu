@@ -115,7 +115,11 @@ class MainActivity : ComponentActivity() {
                 ) {
                     QSyncMainScreen(
                         onRequestAllFilesPermission = { requestAllFilesAccess() },
-                        onStartServer = { QSyncService.start(this) },
+                        onRequestBatteryOptimization = { requestIgnoreBatteryOptimization() },
+                        onStartServer = {
+                            requestNotificationPermission()
+                            QSyncService.start(this)
+                        },
                         onStopServer = { QSyncService.stop(this) },
                         getWifiIp = { getDeviceIpAddress() },
                         configFile = File(filesDir, "qsync_config.json"),
@@ -127,6 +131,34 @@ class MainActivity : ComponentActivity() {
                     )
                 }
             }
+        }
+    }
+
+    private fun requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val permission = android.Manifest.permission.POST_NOTIFICATIONS
+            if (checkSelfPermission(permission) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(arrayOf(permission), 101)
+            }
+        }
+    }
+
+    private fun requestIgnoreBatteryOptimization() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                val powerManager = getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+                if (powerManager != null && !powerManager.isIgnoringBatteryOptimizations(packageName)) {
+                    val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                        data = Uri.parse("package:$packageName")
+                    }
+                    startActivity(intent)
+                }
+            }
+        } catch (e: Exception) {
+            try {
+                val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                startActivity(intent)
+            } catch (ignored: Exception) {}
         }
     }
 
@@ -187,12 +219,13 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-data class SharedFolder(val id: String, val name: String, val path: String)
+data class SharedFolder(val id: String, val name: String, val path: String, val isSync: Boolean = false)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun QSyncMainScreen(
     onRequestAllFilesPermission: () -> Unit,
+    onRequestBatteryOptimization: () -> Unit,
     onStartServer: () -> Unit,
     onStopServer: () -> Unit,
     getWifiIp: () -> String,
@@ -200,6 +233,7 @@ fun QSyncMainScreen(
     currentThemeMode: AppThemeMode,
     onThemeModeChanged: (AppThemeMode) -> Unit
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val httpClient = remember { OkHttpClient() }
 
@@ -209,6 +243,14 @@ fun QSyncMainScreen(
         mutableStateOf(
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 Environment.isExternalStorageManager()
+            } else true
+        )
+    }
+    var isIgnoringBatteryOptimizations by remember {
+        mutableStateOf(
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                val pm = context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+                pm?.isIgnoringBatteryOptimizations(context.packageName) ?: true
             } else true
         )
     }
@@ -224,6 +266,7 @@ fun QSyncMainScreen(
     var showAddDialog by remember { mutableStateOf(false) }
     var newFolderName by remember { mutableStateOf("") }
     var newFolderPath by remember { mutableStateOf("") }
+    var newFolderIsSync by remember { mutableStateOf(false) }
 
     // Helper to read config (folders and server_name)
     fun readConfig() {
@@ -242,7 +285,8 @@ fun QSyncMainScreen(
                         SharedFolder(
                             id = item.optString("id", i.toString()),
                             name = item.optString("name", "Folder"),
-                            path = item.optString("path", "")
+                            path = item.optString("path", ""),
+                            isSync = item.optBoolean("is_sync", false)
                         )
                     )
                 }
@@ -263,6 +307,7 @@ fun QSyncMainScreen(
                     put("id", f.id)
                     put("name", f.name)
                     put("path", f.path)
+                    put("is_sync", f.isSync)
                 }
                 fArray.put(item)
             }
@@ -323,6 +368,10 @@ fun QSyncMainScreen(
         while (true) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 hasFullStoragePermission = Environment.isExternalStorageManager()
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                val pm = context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+                isIgnoringBatteryOptimizations = pm?.isIgnoringBatteryOptimizations(context.packageName) ?: true
             }
             currentIp = getWifiIp()
             isRunning = QSyncService.isRunning
@@ -393,6 +442,44 @@ fun QSyncMainScreen(
                                 )
                             ) {
                                 Text("Grant Permission in 1-Tap")
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 1.1 Battery Optimization Card (keep alive in background)
+            if (!isIgnoringBatteryOptimizations) {
+                item {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    Icons.Default.Info,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    "Background Connection",
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                "To prevent Android from disconnecting when switching apps, allow qSync to run in the background.",
+                                fontSize = 14.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            FilledTonalButton(
+                                onClick = onRequestBatteryOptimization
+                            ) {
+                                Text("Keep Alive in Background")
                             }
                         }
                     }
@@ -513,12 +600,7 @@ fun QSyncMainScreen(
                                         fontSize = 32.sp,
                                         color = MaterialTheme.colorScheme.primary
                                     )
-                                    Text(
-                                        "Enter this code in GNOME extension or CLI",
-                                        fontSize = 12.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Spacer(modifier = Modifier.height(4.dp))
                                     TextButton(onClick = { pairPin = null }) {
                                         Text("Dismiss")
                                     }
@@ -585,12 +667,29 @@ fun QSyncMainScreen(
                             )
                             Spacer(modifier = Modifier.width(12.dp))
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    folder.name,
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontSize = 16.sp,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        folder.name,
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = 16.sp,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    if (folder.isSync) {
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Surface(
+                                            shape = RoundedCornerShape(4.dp),
+                                            color = MaterialTheme.colorScheme.primaryContainer
+                                        ) {
+                                            Text(
+                                                "Sync Target",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    }
+                                }
                                 Text(
                                     folder.path,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -622,10 +721,13 @@ fun QSyncMainScreen(
     // Add Folder Confirmation Dialog
     if (showAddDialog) {
         AlertDialog(
-            onDismissRequest = { showAddDialog = false },
+            onDismissRequest = {
+                showAddDialog = false
+                newFolderIsSync = false
+            },
             title = { Text("Share Folder") },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     OutlinedTextField(
                         value = newFolderName,
                         onValueChange = { newFolderName = it },
@@ -634,19 +736,59 @@ fun QSyncMainScreen(
                         modifier = Modifier.fillMaxWidth()
                     )
                     Text("Path: $newFolderPath", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { newFolderIsSync = !newFolderIsSync },
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = newFolderIsSync,
+                            onCheckedChange = { newFolderIsSync = it }
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            "Syncable folder (Desktop ➔ Phone)",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+
+                    if (newFolderIsSync) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "This is a sync target folder. Its contents will be managed by the desktop app. Do not edit or store new files here directly, as they may be overwritten or deleted during synchronization.",
+                                fontSize = 12.sp,
+                                lineHeight = 16.sp,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                modifier = Modifier.padding(10.dp)
+                            )
+                        }
+                    }
                 }
             },
             confirmButton = {
                 Button(
                     onClick = {
+                        val trimmedPath = newFolderPath.trim().trimEnd('/')
+                        if (newFolderIsSync && (trimmedPath == "/storage/emulated/0" || trimmedPath == "/storage/emulated" || trimmedPath == "/storage")) {
+                            Toast.makeText(context, "Cannot set the entire root storage as a sync target!", Toast.LENGTH_LONG).show()
+                            return@Button
+                        }
                         val name = newFolderName.trim().ifEmpty { File(newFolderPath).name }
                         val id = System.currentTimeMillis().toString()
-                        val newFolder = SharedFolder(id = id, name = name, path = newFolderPath)
+                        val newFolder = SharedFolder(id = id, name = name, path = newFolderPath, isSync = newFolderIsSync)
                         val updated = folders + newFolder
                         saveFoldersToConfig(updated)
                         showAddDialog = false
                         newFolderName = ""
                         newFolderPath = ""
+                        newFolderIsSync = false
                     },
                     enabled = !isRunning
                 ) {
@@ -654,7 +796,10 @@ fun QSyncMainScreen(
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showAddDialog = false }) {
+                TextButton(onClick = {
+                    showAddDialog = false
+                    newFolderIsSync = false
+                }) {
                     Text("Cancel")
                 }
             }
@@ -749,7 +894,7 @@ fun QSyncMainScreen(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text("Version", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("1.0.0", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text(BuildConfig.VERSION_NAME, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                     }
                 }
             },

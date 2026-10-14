@@ -94,6 +94,36 @@ To uninstall and remove all desktop components:
 
 ---
 
+## 🔄 Synchronized Folders (Desktop ➔ Phone One-Way Sync)
+
+Starting in version 1.2, qSync introduces **One-Way Folder Synchronization** from your Linux desktop directly to your Android device.
+
+### How it works:
+- **Desktop is the Source of Truth**: The target folder on your phone is maintained as an exact mirror of the mapped local directory on your PC.
+- **Fast & Differential**: Only new or modified files are uploaded. Subdirectories are recreated automatically.
+- **Atomic Deletions**: Files or folders removed on your desktop will be removed from the phone's sync target folder during synchronization.
+
+> [!CAUTION]
+> **Important Warning for Sync Target Folders**
+> A folder designated as **"Syncable folder"** on Android is strictly controlled by the desktop.
+> **Do not store important or unique files in this folder on your phone!**
+> Any files or modifications made on the phone inside a sync target folder may be overwritten or deleted during sync sessions.
+
+### Built-in Safeguards & Protection:
+To prevent accidental data loss:
+- **Root Storage Protection**: You cannot mark the root of Android internal storage (`/storage/emulated/0`) as a sync target.
+- **Desktop System Path Protection**: The sync engine strictly refuses to use `/`, `/home`, your entire user home directory (`~`), `/etc`, `/usr`, or other system directories as a sync source.
+
+### Setup Guide:
+1. **On your phone**: In qSync, tap **Add Folder**, select or create a dedicated target folder (e.g., `Music`, `Podcasts`, or `Coub`), check **"Syncable folder (Desktop ➔ Phone)"**, and tap **Add**.
+2. **On your desktop**:
+   - In the GNOME Top Bar menu, open your device submenu and click **⚙️ Sync Settings...**.
+   - Browse and choose the matching source directory on your PC (or configure mappings via CLI: `qsync sync --map "FolderName=/path/to/folder"`).
+   - Click **Save**.
+3. **Run Sync**: Click **🔄 Sync Now** from the top bar menu or run `qsync sync` in your terminal. The icon will indicate progress without interrupting you with toast notifications.
+
+---
+
 ## Quick Usage
 
 1. **Android**:
@@ -107,6 +137,23 @@ To uninstall and remove all desktop components:
    - Click the **qSync** icon in the GNOME Top Bar (or Quick Settings).
    - Select **Pair Phone...** and enter the 6-digit PIN.
    - Click **Mount** — your phone folders will immediately open in Nautilus as network drives!
+
+---
+
+## 🤝 Call for Contributors: Bring qSync to More Platforms!
+
+While qSync currently features first-class desktop integration for **GNOME Shell**, the underlying Go engine, CLI, and WebDAV/HTTP APIs are cross-platform.
+
+We are looking for enthusiastic developers and contributors to help create native management interfaces and tray integrations for:
+- **Windows** (System tray utility, Windows Explorer network location / drive mapping)
+- **macOS** (Menu bar app, Finder WebDAV integration)
+- **Other Linux Desktop Environments**:
+  - **KDE Plasma** (Plasma widget, Dolphin / KIO integration)
+  - **XFCE** (Panel applet / notification area plugin)
+  - **Cinnamon** / **MATE** (Applets)
+  - Generic cross-desktop system tray app (e.g., Qt, GTK, Tauri, Fyne, or Wails)
+
+If you're interested in building a UI for your favorite platform or desktop environment, please feel free to open an issue, start a discussion, or submit a pull request!
 
 ---
 

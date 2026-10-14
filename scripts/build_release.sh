@@ -39,8 +39,8 @@ echo "[2/4] Building optimized Android arm64-v8a native core & APK..."
 rm -rf "${ROOT_DIR}/android/app/src/main/jniLibs/armeabi-v7a" "${ROOT_DIR}/android/app/src/main/jniLibs/x86_64"
 "${ROOT_DIR}/scripts/build_android_native.sh" arm64
 
-echo "Compiling Android application..."
-(cd "${ROOT_DIR}/android" && ./gradlew assembleDebug)
+echo "Compiling Android application (version ${CLEAN_VERSION})..."
+(cd "${ROOT_DIR}/android" && ./gradlew assembleDebug -PappVersion="${CLEAN_VERSION}")
 
 APK_PATH="${ROOT_DIR}/android/app/build/outputs/apk/debug/app-debug.apk"
 if [ ! -f "${APK_PATH}" ]; then

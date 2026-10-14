@@ -5,11 +5,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 )
 
 const (
 	DefaultKey = "default_token"
 )
+
+var configMu sync.Mutex
 
 type DeviceInfo struct {
 	Name  string `json:"name"`
@@ -19,12 +22,13 @@ type DeviceInfo struct {
 }
 
 type Config struct {
-	DefaultToken   string                `json:"default_token,omitempty"`
-	Tokens         map[string]string     `json:"tokens,omitempty"` // key: deviceKey or name
-	LastServerName string                `json:"last_server_name"`
-	LastServerIP   string                `json:"last_server_ip"`
-	LastServerPort int                   `json:"last_server_port"`
-	PairedDevices  map[string]DeviceInfo `json:"paired_devices,omitempty"`
+	DefaultToken   string                       `json:"default_token,omitempty"`
+	Tokens         map[string]string            `json:"tokens,omitempty"` // key: deviceKey or name
+	LastServerName string                       `json:"last_server_name"`
+	LastServerIP   string                       `json:"last_server_ip"`
+	LastServerPort int                          `json:"last_server_port"`
+	PairedDevices  map[string]DeviceInfo        `json:"paired_devices,omitempty"`
+	SyncMappings   map[string]map[string]string `json:"sync_mappings,omitempty"` // key: deviceName -> folderName -> localPath
 }
 
 func getConfigPath() (string, error) {
@@ -43,7 +47,7 @@ func getConfigPath() (string, error) {
 	return filepath.Join(dir, "client_config.json"), nil
 }
 
-func SaveConfig(cfg Config) error {
+func saveConfigLocked(cfg Config) error {
 	path, err := getConfigPath()
 	if err != nil {
 		return err
@@ -54,14 +58,23 @@ func SaveConfig(cfg Config) error {
 	if cfg.Tokens == nil {
 		cfg.Tokens = make(map[string]string)
 	}
+	if cfg.SyncMappings == nil {
+		cfg.SyncMappings = make(map[string]map[string]string)
+	}
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0600)
+
+	// Atomic write: write to temp file then rename to avoid partial reads by other threads
+	tmpPath := path + ".tmp"
+	if err := os.WriteFile(tmpPath, data, 0600); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, path)
 }
 
-func LoadConfig() (Config, error) {
+func loadConfigLocked() (Config, error) {
 	var cfg Config
 	path, err := getConfigPath()
 	if err != nil {
@@ -89,6 +102,18 @@ func LoadConfig() (Config, error) {
 	return cfg, err
 }
 
+func SaveConfig(cfg Config) error {
+	configMu.Lock()
+	defer configMu.Unlock()
+	return saveConfigLocked(cfg)
+}
+
+func LoadConfig() (Config, error) {
+	configMu.Lock()
+	defer configMu.Unlock()
+	return loadConfigLocked()
+}
+
 func NormalizeServerKey(name string) string {
 	if name == "" {
 		return DefaultKey
@@ -109,7 +134,10 @@ func SaveToken(serverID, token string) error {
 	if serverID == "" {
 		serverID = DefaultKey
 	}
-	cfg, _ := LoadConfig()
+	configMu.Lock()
+	defer configMu.Unlock()
+
+	cfg, _ := loadConfigLocked()
 	if cfg.Tokens == nil {
 		cfg.Tokens = make(map[string]string)
 	}
@@ -117,14 +145,17 @@ func SaveToken(serverID, token string) error {
 	if serverID == DefaultKey {
 		cfg.DefaultToken = token
 	}
-	return SaveConfig(cfg)
+	return saveConfigLocked(cfg)
 }
 
 func GetToken(serverID string) (string, error) {
 	if serverID == "" {
 		serverID = DefaultKey
 	}
-	cfg, err := LoadConfig()
+	configMu.Lock()
+	defer configMu.Unlock()
+
+	cfg, err := loadConfigLocked()
 	if err != nil {
 		return "", fmt.Errorf("failed to load config: %w", err)
 	}
@@ -157,13 +188,16 @@ func DeleteToken(serverID string) error {
 	if serverID == "" {
 		serverID = DefaultKey
 	}
-	cfg, err := LoadConfig()
+	configMu.Lock()
+	defer configMu.Unlock()
+
+	cfg, err := loadConfigLocked()
 	if err == nil {
 		delete(cfg.Tokens, serverID)
 		if serverID == DefaultKey {
 			cfg.DefaultToken = ""
 		}
-		_ = SaveConfig(cfg)
+		_ = saveConfigLocked(cfg)
 	}
 	return nil
 }
@@ -173,9 +207,12 @@ func UpdatePairedDevice(name, ip string, port int, token string) error {
 	if name == "" {
 		return nil
 	}
-	cfg, err := LoadConfig()
-	if err != nil {
-		cfg = Config{}
+	configMu.Lock()
+	defer configMu.Unlock()
+
+	cfg, err := loadConfigLocked()
+	if err != nil && !os.IsNotExist(err) {
+		return err
 	}
 	if cfg.PairedDevices == nil {
 		cfg.PairedDevices = make(map[string]DeviceInfo)
@@ -197,6 +234,17 @@ func UpdatePairedDevice(name, ip string, port int, token string) error {
 		delete(cfg.Tokens, NormalizeServerKey(oldName))
 		if cfg.LastServerName == oldName {
 			cfg.LastServerName = name
+		}
+		if cfg.SyncMappings != nil && cfg.SyncMappings[oldName] != nil {
+			if cfg.SyncMappings[name] == nil {
+				cfg.SyncMappings[name] = make(map[string]string)
+			}
+			for fName, lPath := range cfg.SyncMappings[oldName] {
+				if _, exists := cfg.SyncMappings[name][fName]; !exists {
+					cfg.SyncMappings[name][fName] = lPath
+				}
+			}
+			delete(cfg.SyncMappings, oldName)
 		}
 	}
 
@@ -220,5 +268,101 @@ func UpdatePairedDevice(name, ip string, port int, token string) error {
 		cfg.LastServerPort = port
 	}
 
-	return SaveConfig(cfg)
+	return saveConfigLocked(cfg)
+}
+
+// EnsureSyncFoldersInConfig checks the phone's syncable folders for deviceName.
+// If any folder is not yet listed in cfg.SyncMappings[deviceName], it adds it with an empty path ("")
+// so that a user can easily open client_config.json and fill in the local source directory manually.
+func EnsureSyncFoldersInConfig(deviceName string, remoteSyncFolders []string) error {
+	if deviceName == "" || len(remoteSyncFolders) == 0 {
+		return nil
+	}
+	configMu.Lock()
+	defer configMu.Unlock()
+
+	cfg, err := loadConfigLocked()
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if cfg.SyncMappings == nil {
+		cfg.SyncMappings = make(map[string]map[string]string)
+	}
+	if cfg.SyncMappings[deviceName] == nil {
+		cfg.SyncMappings[deviceName] = make(map[string]string)
+	}
+
+	changed := false
+	for _, folder := range remoteSyncFolders {
+		if _, exists := cfg.SyncMappings[deviceName][folder]; !exists {
+			cfg.SyncMappings[deviceName][folder] = ""
+			changed = true
+		}
+	}
+
+	if changed {
+		return saveConfigLocked(cfg)
+	}
+	return nil
+}
+
+// GetSyncMappings returns the map of remoteFolderName -> localPath for a device.
+func GetSyncMappings(deviceName string) map[string]string {
+	configMu.Lock()
+	defer configMu.Unlock()
+
+	cfg, err := loadConfigLocked()
+	if err != nil || cfg.SyncMappings == nil {
+		return make(map[string]string)
+	}
+	if m, ok := cfg.SyncMappings[deviceName]; ok {
+		res := make(map[string]string)
+		for k, v := range m {
+			res[k] = v
+		}
+		return res
+	}
+	return make(map[string]string)
+}
+
+// SetSyncMapping saves a local folder path mapping for a specific device and remote folder.
+func SetSyncMapping(deviceName, remoteFolder, localPath string) error {
+	configMu.Lock()
+	defer configMu.Unlock()
+
+	cfg, err := loadConfigLocked()
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if cfg.SyncMappings == nil {
+		cfg.SyncMappings = make(map[string]map[string]string)
+	}
+	if cfg.SyncMappings[deviceName] == nil {
+		cfg.SyncMappings[deviceName] = make(map[string]string)
+	}
+
+	cfg.SyncMappings[deviceName][remoteFolder] = localPath
+	return saveConfigLocked(cfg)
+}
+
+// SetSyncMappingsBatch atomically updates all folder mappings for a device.
+func SetSyncMappingsBatch(deviceName string, mappings map[string]string) error {
+	configMu.Lock()
+	defer configMu.Unlock()
+
+	cfg, err := loadConfigLocked()
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if cfg.SyncMappings == nil {
+		cfg.SyncMappings = make(map[string]map[string]string)
+	}
+	if cfg.SyncMappings[deviceName] == nil {
+		cfg.SyncMappings[deviceName] = make(map[string]string)
+	}
+
+	for k, v := range mappings {
+		cfg.SyncMappings[deviceName][k] = v
+	}
+	return saveConfigLocked(cfg)
 }
