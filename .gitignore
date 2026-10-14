@@ -1,0 +1,40 @@
+# Compiled binaries and libraries
+*.so
+*.dylib
+*.dll
+*.exe
+cli/qsync
+core/libqsyncserver.so
+core/libqsyncserver.h
+**/libqsyncserver.so
+**/libqsyncserver.h
+
+# Go build & test artifacts
+*.test
+*.out
+
+# Android / Gradle artifacts
+.gradle/
+**/build/
+.kotlin/
+captures/
+.externalNativeBuild/
+.cxx/
+local.properties
+*.apk
+*.aab
+*.ap_
+*.dex
+output.json
+
+# IDE / Editor files
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS artifacts
+.DS_Store
+Thumbs.db

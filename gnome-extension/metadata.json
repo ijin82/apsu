@@ -1,0 +1,13 @@
+{
+  "name": "qSync",
+  "description": "Quick Sync for Android: One-click local Wi-Fi file mounting for GNOME Nautilus",
+  "uuid": "qsync@ijin.github.io",
+  "shell-version": [
+    "45",
+    "46",
+    "47",
+    "48"
+  ],
+  "url": "https://github.com/ijin/qsync",
+  "version": 1
+}

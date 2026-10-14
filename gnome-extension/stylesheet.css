@@ -1,0 +1,22 @@
+.qsync-indicator-offline {
+    color: rgba(255, 255, 255, 0.4);
+}
+
+.qsync-indicator-online {
+    color: #3584e4;
+}
+
+.qsync-indicator-mounted {
+    color: #33d17a;
+}
+
+.qsync-menu-header {
+    font-weight: bold;
+    font-size: 1.1em;
+    padding-bottom: 4px;
+}
+
+.qsync-menu-subtitle {
+    font-size: 0.85em;
+    color: #9a9996;
+}
