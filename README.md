@@ -2,7 +2,7 @@
 
 **qSync** is a lightweight, zero-friction local Wi-Fi file sharing suite. It connects an Android phone to a Linux desktop (GNOME Shell / Nautilus) with zero cloud dependencies, no internet required, end-to-end PIN pairing, and high-speed local WebDAV transfers.
 
----
+<img width="256" alt="ic_launcher-playstore" src="https://github.com/user-attachments/assets/34f0e533-a8d5-4986-a3bc-02857de2bd5d" />
 
 ## Architecture
 
