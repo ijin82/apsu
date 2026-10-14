@@ -430,10 +430,18 @@ export default class QSyncExtension extends Extension {
     }
 
     _refreshStatus() {
-        if (!this._isActive || !this._proxy) return;
+        if (!this._proxy) {
+            this._initDBus();
+            return;
+        }
 
         this._proxy.GetDevicesJSONRemote((result, error) => {
-            if (error || !result || !result[0]) {
+            if (error) {
+                // If daemon is starting up or restarting, attempt to reconnect
+                this._updateUIState([]);
+                return;
+            }
+            if (!result || !result[0]) {
                 this._updateUIState([]);
                 return;
             }
