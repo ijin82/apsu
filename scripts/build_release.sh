@@ -33,14 +33,16 @@ echo "[1/4] Compiling Linux CLI binary..."
 mkdir -p "${ROOT_DIR}/cli"
 (cd "${ROOT_DIR}/cli" && go build -o qsync ./cmd/qsync)
 
-# 2. Build Android APK
-echo "[2/4] Checking and building Android APK..."
-APK_PATH="${ROOT_DIR}/android/app/build/outputs/apk/debug/app-debug.apk"
-if [ ! -f "${APK_PATH}" ]; then
-    echo "APK not found. Building Android application via Gradle..."
-    (cd "${ROOT_DIR}/android" && ./gradlew assembleDebug)
-fi
+# 2. Build Android native core (arm64-v8a) & APK
+echo "[2/4] Building optimized Android arm64-v8a native core & APK..."
+# Keep only arm64-v8a in jniLibs for release package
+rm -rf "${ROOT_DIR}/android/app/src/main/jniLibs/armeabi-v7a" "${ROOT_DIR}/android/app/src/main/jniLibs/x86_64"
+"${ROOT_DIR}/scripts/build_android_native.sh" arm64
 
+echo "Compiling Android application..."
+(cd "${ROOT_DIR}/android" && ./gradlew assembleDebug)
+
+APK_PATH="${ROOT_DIR}/android/app/build/outputs/apk/debug/app-debug.apk"
 if [ ! -f "${APK_PATH}" ]; then
     echo "ERROR: APK build failed or file not found at ${APK_PATH}" >&2
     exit 1

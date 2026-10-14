@@ -44,10 +44,8 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
-    implementation(libs.androidx.lifecycle.viewmodel.compose)
-    
-    // Material icons extended
-    implementation("androidx.compose.material:material-icons-extended:1.7.5")
+    // Material icons core (minimal base set of icons)
+    implementation("androidx.compose.material:material-icons-core")
     // OkHttp for local status polling if needed
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
