@@ -103,19 +103,27 @@ var pairCmd = &cobra.Command{
 			return
 		}
 
-		if err := keyring.SaveToken("", token); err != nil {
-			fmt.Printf("❌ Failed to store token in Keyring: %v\n", err)
-			return
-		}
+		_ = keyring.SaveToken("", token)
+		deviceKey := keyring.NormalizeServerKey(serverName)
+		_ = keyring.SaveToken(deviceKey, token)
 
-		_ = keyring.SaveConfig(keyring.Config{
-			LastServerName: serverName,
-			LastServerIP:   targetIP,
-			LastServerPort: targetPort,
-		})
+		cfg, _ := keyring.LoadConfig()
+		cfg.LastServerName = serverName
+		cfg.LastServerIP = targetIP
+		cfg.LastServerPort = targetPort
+		if cfg.PairedDevices == nil {
+			cfg.PairedDevices = make(map[string]keyring.DeviceInfo)
+		}
+		cfg.PairedDevices[serverName] = keyring.DeviceInfo{
+			Name:  serverName,
+			IP:    targetIP,
+			Port:  targetPort,
+			Token: token,
+		}
+		_ = keyring.SaveConfig(cfg)
 
 		fmt.Printf("🎉 Successfully paired with '%s'!\n", serverName)
-		fmt.Println("Token securely saved in OS Keyring.")
+		fmt.Println("Token saved in configuration.")
 		fmt.Println("You can now run 'qsync mount' to access the phone.")
 	},
 }

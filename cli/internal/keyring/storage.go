@@ -5,22 +5,22 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-
-	"github.com/zalando/go-keyring"
 )
 
 const (
-	ServiceName = "qsync"
-	DefaultKey  = "default_token"
+	DefaultKey = "default_token"
 )
 
 type DeviceInfo struct {
-	Name string `json:"name"`
-	IP   string `json:"ip"`
-	Port int    `json:"port"`
+	Name  string `json:"name"`
+	IP    string `json:"ip"`
+	Port  int    `json:"port"`
+	Token string `json:"token,omitempty"`
 }
 
 type Config struct {
+	DefaultToken   string                `json:"default_token,omitempty"`
+	Tokens         map[string]string     `json:"tokens,omitempty"` // key: deviceKey or name
 	LastServerName string                `json:"last_server_name"`
 	LastServerIP   string                `json:"last_server_ip"`
 	LastServerPort int                   `json:"last_server_port"`
@@ -28,12 +28,16 @@ type Config struct {
 }
 
 func getConfigPath() (string, error) {
-	home, err := os.UserHomeDir()
+	configDir, err := os.UserConfigDir()
 	if err != nil {
-		return "", err
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		configDir = filepath.Join(home, ".config")
 	}
-	dir := filepath.Join(home, ".config", "qsync-client")
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	dir := filepath.Join(configDir, "qsync")
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return "", err
 	}
 	return filepath.Join(dir, "client_config.json"), nil
@@ -46,6 +50,9 @@ func SaveConfig(cfg Config) error {
 	}
 	if cfg.PairedDevices == nil {
 		cfg.PairedDevices = make(map[string]DeviceInfo)
+	}
+	if cfg.Tokens == nil {
+		cfg.Tokens = make(map[string]string)
 	}
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
@@ -60,13 +67,24 @@ func LoadConfig() (Config, error) {
 	if err != nil {
 		return cfg, err
 	}
+
 	data, err := os.ReadFile(path)
 	if err != nil {
+		if cfg.PairedDevices == nil {
+			cfg.PairedDevices = make(map[string]DeviceInfo)
+		}
+		if cfg.Tokens == nil {
+			cfg.Tokens = make(map[string]string)
+		}
 		return cfg, err
 	}
+
 	err = json.Unmarshal(data, &cfg)
 	if cfg.PairedDevices == nil {
 		cfg.PairedDevices = make(map[string]DeviceInfo)
+	}
+	if cfg.Tokens == nil {
+		cfg.Tokens = make(map[string]string)
 	}
 	return cfg, err
 }
@@ -91,27 +109,61 @@ func SaveToken(serverID, token string) error {
 	if serverID == "" {
 		serverID = DefaultKey
 	}
-	return keyring.Set(ServiceName, serverID, token)
+	cfg, _ := LoadConfig()
+	if cfg.Tokens == nil {
+		cfg.Tokens = make(map[string]string)
+	}
+	cfg.Tokens[serverID] = token
+	if serverID == DefaultKey {
+		cfg.DefaultToken = token
+	}
+	return SaveConfig(cfg)
 }
 
 func GetToken(serverID string) (string, error) {
 	if serverID == "" {
 		serverID = DefaultKey
 	}
-	token, err := keyring.Get(ServiceName, serverID)
+	cfg, err := LoadConfig()
 	if err != nil {
-		// Fallback to default if specific key not found
-		if serverID != DefaultKey {
-			return keyring.Get(ServiceName, DefaultKey)
-		}
-		return "", fmt.Errorf("failed to retrieve token: %w", err)
+		return "", fmt.Errorf("failed to load config: %w", err)
 	}
-	return token, nil
+
+	if token, ok := cfg.Tokens[serverID]; ok && token != "" {
+		return token, nil
+	}
+	// Check inside PairedDevices map
+	for name, dev := range cfg.PairedDevices {
+		if name == serverID || NormalizeServerKey(name) == serverID {
+			if dev.Token != "" {
+				return dev.Token, nil
+			}
+		}
+	}
+	// Fallback to default token
+	if serverID != DefaultKey {
+		if token, ok := cfg.Tokens[DefaultKey]; ok && token != "" {
+			return token, nil
+		}
+		if cfg.DefaultToken != "" {
+			return cfg.DefaultToken, nil
+		}
+	}
+
+	return "", fmt.Errorf("token not found for server: %s", serverID)
 }
 
 func DeleteToken(serverID string) error {
 	if serverID == "" {
 		serverID = DefaultKey
 	}
-	return keyring.Delete(ServiceName, serverID)
+	cfg, err := LoadConfig()
+	if err == nil {
+		delete(cfg.Tokens, serverID)
+		if serverID == DefaultKey {
+			cfg.DefaultToken = ""
+		}
+		_ = SaveConfig(cfg)
+	}
+	return nil
 }

@@ -126,9 +126,10 @@ func (d *DaemonService) Pair(pin string, ip string, port int) (bool, string, str
 		cfg.PairedDevices = make(map[string]keyring.DeviceInfo)
 	}
 	cfg.PairedDevices[serverName] = keyring.DeviceInfo{
-		Name: serverName,
-		IP:   targetIP,
-		Port: targetPort,
+		Name:  serverName,
+		IP:    targetIP,
+		Port:  targetPort,
+		Token: token,
 	}
 	_ = keyring.SaveConfig(cfg)
 
