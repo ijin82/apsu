@@ -294,11 +294,8 @@ export default class QSyncExtension extends Extension {
     }
 
     _buildPanelMenu() {
-        this._menuHeader = new PopupMenu.PopupMenuItem('qSync: Ready', {reactive: false});
+        this._menuHeader = new PopupMenu.PopupMenuItem('qSync', {reactive: false});
         this._indicator.menu.addMenuItem(this._menuHeader);
-
-        this._menuSub = new PopupMenu.PopupMenuItem('Waiting...', {reactive: false});
-        this._indicator.menu.addMenuItem(this._menuSub);
 
         this._devicesSection = new PopupMenu.PopupMenuSection();
         this._indicator.menu.addMenuItem(this._devicesSection);
@@ -308,6 +305,8 @@ export default class QSyncExtension extends Extension {
         this._actionPair = new PopupMenu.PopupMenuItem('🤝 Pair New Phone...');
         this._actionPair.connect('activate', () => this.showPairDialog());
         this._indicator.menu.addMenuItem(this._actionPair);
+
+        this._renderedDevicesKey = '';
     }
 
     showPairDialog() {
@@ -350,7 +349,7 @@ export default class QSyncExtension extends Extension {
             this._indicator.visible = false;
             this._stopDaemon();
             this._stopPolling();
-            this._updateUIState(false, '', '', 0, false, []);
+            this._updateUIState([]);
         }
     }
 
@@ -386,8 +385,8 @@ export default class QSyncExtension extends Extension {
     _checkInitialDaemon() {
         if (!this._proxy) return;
 
-        this._proxy.GetStatusRemote((result, error) => {
-            if (!error && result) {
+        this._proxy.GetDevicesJSONRemote((result, error) => {
+            if (!error && result && result[0]) {
                 this._isActive = true;
                 this._indicator.visible = true;
                 this._startPolling();
@@ -432,42 +431,42 @@ export default class QSyncExtension extends Extension {
     _refreshStatus() {
         if (!this._isActive || !this._proxy) return;
 
-        this._proxy.GetStatusRemote((result, error) => {
-            if (error || !result) {
-                this._updateUIState(false, 'Daemon Offline', '', 0, false, []);
+        this._proxy.GetDevicesJSONRemote((result, error) => {
+            if (error || !result || !result[0]) {
+                this._updateUIState([]);
                 return;
             }
-            const [phoneFound, phoneName, phoneIP, phonePort, isMounted] = result;
 
-            this._proxy.GetDevicesJSONRemote((devResult, devErr) => {
-                let devices = [];
-                if (!devErr && devResult && devResult[0]) {
-                    try {
-                        devices = JSON.parse(devResult[0]);
-                    } catch (e) {}
-                }
-                this._updateUIState(phoneFound, phoneName, phoneIP, phonePort, isMounted, devices);
-            });
+            let devices = [];
+            try {
+                devices = JSON.parse(result[0]);
+            } catch (e) {
+                devices = [];
+            }
+            this._updateUIState(devices);
         });
     }
 
-    _updateUIState(phoneFound, phoneName, phoneIP, phonePort, isMounted, devices = []) {
-        if (phoneIP) {
-            this._phoneIP = phoneIP;
-            this._phonePort = phonePort || 8484;
-        }
+    _updateUIState(devices = []) {
+        const anyMounted = devices.some(d => d.isMounted);
+        const anyOnline = devices.some(d => d.isOnline);
 
-        const anyMounted = isMounted || devices.some(d => d.isMounted);
-        const anyOnline = phoneFound || devices.some(d => d.isOnline);
+        // Find primary device for quick toggle
+        const primary = devices.find(d => d.isMounted) || devices.find(d => d.isOnline) || (devices.length > 0 ? devices[0] : null);
+
+        if (primary && primary.ip) {
+            this._phoneIP = primary.ip;
+            this._phonePort = primary.port || 8484;
+        }
 
         // 1. Update Quick Settings Toggle
         if (this._qsIndicator && this._qsIndicator.quickSettingsToggle) {
             this._qsIndicator.quickSettingsToggle.updateState(
                 this._isActive,
                 anyOnline,
-                phoneName,
-                phoneIP,
-                phonePort,
+                primary ? primary.name : '',
+                primary ? primary.ip : '',
+                primary ? primary.port : 8484,
                 anyMounted
             );
         }
@@ -487,50 +486,41 @@ export default class QSyncExtension extends Extension {
             this._icon.add_style_class_name('qsync-indicator-offline');
         }
 
-        // Update Top Bar Header
+        // Update Top Bar Header (clean & static to avoid flicker)
         if (devices.length > 1) {
             const onlineCount = devices.filter(d => d.isOnline).length;
-            this._menuHeader.label.text = `qSync (${onlineCount}/${devices.length} Online)`;
-            this._menuSub.label.text = anyMounted ? 'Devices Connected & Mounted' : 'Ready to Connect';
+            this._menuHeader.label.text = `qSync • ${onlineCount}/${devices.length} Online`;
+        } else if (anyMounted) {
+            this._menuHeader.label.text = 'qSync • Mounted';
         } else if (anyOnline) {
-            this._menuHeader.label.text = phoneName || 'Phone in Wi-Fi';
-            this._menuSub.label.text = `${phoneIP}:${phonePort}` + (anyMounted ? ' (Mounted)' : ' (Ready)');
+            this._menuHeader.label.text = 'qSync • Ready';
         } else {
-            this._menuHeader.label.text = phoneName || 'Phone Disconnected';
-            this._menuSub.label.text = phoneIP ? `${phoneIP} (Offline)` : 'Searching on Wi-Fi...';
+            this._menuHeader.label.text = 'qSync • Searching Wi-Fi...';
         }
 
-        // 3. Render Devices in Menu
+        // 3. Render Devices in Menu with cache key check to eliminate flicker
         if (this._devicesSection) {
-            this._devicesSection.removeAll();
+            const newKey = JSON.stringify(devices.map(d => `${d.name}_${d.ip}_${d.isOnline}_${d.isMounted}`));
+            if (newKey !== this._renderedDevicesKey) {
+                this._renderedDevicesKey = newKey;
+                this._devicesSection.removeAll();
 
-            if (devices.length === 0) {
-                if (anyOnline) {
-                    // Fallback to single device display
-                    const singleDev = {
-                        name: phoneName || 'Phone',
-                        ip: phoneIP,
-                        port: phonePort,
-                        isOnline: true,
-                        isMounted: isMounted
-                    };
-                    this._addDeviceMenuItems(this._devicesSection, singleDev);
-                } else {
-                    const emptyItem = new PopupMenu.PopupMenuItem('No devices detected', {reactive: false});
+                if (devices.length === 0) {
+                    const emptyItem = new PopupMenu.PopupMenuItem('No devices detected on Wi-Fi', {reactive: false});
                     this._devicesSection.addMenuItem(emptyItem);
+                } else {
+                    devices.forEach(dev => {
+                        this._addDeviceMenuItems(this._devicesSection, dev);
+                    });
                 }
-            } else {
-                devices.forEach(dev => {
-                    this._addDeviceMenuItems(this._devicesSection, dev);
-                });
             }
         }
     }
 
     _addDeviceMenuItems(section, dev) {
-        const title = `${dev.name} (${dev.ip}:${dev.port})`;
-        const status = dev.isMounted ? ' [Mounted]' : (dev.isOnline ? ' [Ready]' : ' [Offline]');
-        const headerItem = new PopupMenu.PopupMenuItem(`📱 ${title}${status}`, {reactive: false});
+        const statusText = dev.isMounted ? 'Mounted' : (dev.isOnline ? 'Ready' : 'Offline');
+        const headerTitle = `📱 ${dev.name} (${dev.ip}) • ${statusText}`;
+        const headerItem = new PopupMenu.PopupMenuItem(headerTitle, {reactive: false});
         section.addMenuItem(headerItem);
 
         if (dev.isMounted) {
