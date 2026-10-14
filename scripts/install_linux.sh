@@ -9,7 +9,14 @@
 
 set -e
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Check if running from within scripts/ directory of repo or directly from package root
+if [ -d "${SCRIPT_DIR}/../gnome-extension" ]; then
+    ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+else
+    ROOT_DIR="${SCRIPT_DIR}"
+fi
+
 BIN_DIR="${HOME}/.local/bin"
 SYSTEMD_DIR="${HOME}/.config/systemd/user"
 EXT_UUID="qsync@ijin.github.io"
@@ -34,17 +41,19 @@ print_error() {
 install_qsync() {
     print_info "Starting qSync desktop installation..."
 
-    # 1. Build CLI binary if go is available
+    # 1. Install CLI binary: pre-built binary first, or compile if in repo
     mkdir -p "${BIN_DIR}"
-    if command -v go >/dev/null 2>&1; then
-        print_info "Building CLI binary from source (${SCRIPT_DIR}/cli)..."
-        (cd "${SCRIPT_DIR}/cli" && go build -o "${BIN_DIR}/qsync" ./cmd/qsync)
-    elif [ -f "${SCRIPT_DIR}/cli/qsync" ]; then
-        print_info "Copying pre-built CLI binary..."
-        cp "${SCRIPT_DIR}/cli/qsync" "${BIN_DIR}/qsync"
-        chmod +x "${BIN_DIR}/qsync"
+    if [ -f "${ROOT_DIR}/qsync" ]; then
+        print_info "Installing pre-built CLI binary from package..."
+        cp "${ROOT_DIR}/qsync" "${BIN_DIR}/qsync"
+    elif [ -f "${ROOT_DIR}/cli/qsync" ]; then
+        print_info "Installing pre-built CLI binary from cli/qsync..."
+        cp "${ROOT_DIR}/cli/qsync" "${BIN_DIR}/qsync"
+    elif command -v go >/dev/null 2>&1 && [ -d "${ROOT_DIR}/cli" ]; then
+        print_info "Building CLI binary from source (${ROOT_DIR}/cli)..."
+        (cd "${ROOT_DIR}/cli" && go build -o "${BIN_DIR}/qsync" ./cmd/qsync)
     else
-        print_error "Go compiler not found and no pre-built binary in cli/qsync. Please install Go (1.22+)."
+        print_error "qsync binary not found and cannot compile. Please ensure 'qsync' exists or Go is installed."
         exit 1
     fi
     chmod +x "${BIN_DIR}/qsync"
@@ -82,7 +91,7 @@ SYSTEMD_EOF
     print_info "Installing GNOME Shell extension (${EXT_UUID})..."
     rm -rf "${EXT_DIR}"
     mkdir -p "${EXT_DIR}"
-    cp -r "${SCRIPT_DIR}/gnome-extension/"* "${EXT_DIR}/"
+    cp -r "${ROOT_DIR}/gnome-extension/"* "${EXT_DIR}/"
     print_success "GNOME extension files copied to ${EXT_DIR}"
 
     # Try enabling extension via CLI if available
