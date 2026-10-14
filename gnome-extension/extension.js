@@ -294,12 +294,6 @@ export default class QSyncExtension extends Extension {
         this._actionUnmount = new PopupMenu.PopupMenuItem('⏏ Unmount Phone');
         this._actionUnmount.connect('activate', () => this.unmountPhone());
         this._indicator.menu.addMenuItem(this._actionUnmount);
-
-        this._indicator.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-
-        const turnOffItem = new PopupMenu.PopupMenuItem('⏹ Turn Off');
-        turnOffItem.connect('activate', () => this.toggleActive(false));
-        this._indicator.menu.addMenuItem(turnOffItem);
     }
 
     showPairDialog() {

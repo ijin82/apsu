@@ -425,17 +425,7 @@ fun QSyncMainScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                        Text("Shared Folders", fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                        if (isRunning) {
-                            Text(
-                                "Остановите сервер для изменения папок",
-                                fontSize = 12.sp,
-                                color = Color(0xFFD32F2F),
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-                    }
+                    Text("Shared Folders", fontWeight = FontWeight.Bold, fontSize = 18.sp)
                     FilledTonalButton(
                         onClick = {
                             if (!isRunning) {
