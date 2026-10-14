@@ -351,15 +351,18 @@ func (d *DaemonService) checkStatus() {
 	// Add discovered devices
 	for _, disc := range discovered {
 		isMounted, _ := d.mounter.IsMounted(disc.IP, disc.Port)
-		deviceKey := keyring.NormalizeServerKey(disc.Name)
-		token, _ := keyring.GetToken(deviceKey)
-		if token == "" {
-			token, _ = keyring.GetToken("")
-		}
-
 		name := disc.Name
 		if actualName := client.FetchServerName(disc.IP, disc.Port); actualName != "" {
 			name = actualName
+		}
+
+		deviceKey := keyring.NormalizeServerKey(name)
+		token, _ := keyring.GetToken(deviceKey)
+		if token == "" && disc.Name != name {
+			token, _ = keyring.GetToken(keyring.NormalizeServerKey(disc.Name))
+		}
+		if token == "" {
+			token, _ = keyring.GetToken("")
 		}
 
 		newDevices[disc.IP] = DeviceStatus{
@@ -376,10 +379,9 @@ func (d *DaemonService) checkStatus() {
 	for _, p := range cfg.PairedDevices {
 		if _, exists := newDevices[p.IP]; !exists {
 			online := client.Ping(p.IP, p.Port)
-			isMounted := false
+			isMounted, _ := d.mounter.IsMounted(p.IP, p.Port)
 			name := p.Name
 			if online {
-				isMounted, _ = d.mounter.IsMounted(p.IP, p.Port)
 				if actualName := client.FetchServerName(p.IP, p.Port); actualName != "" {
 					name = actualName
 				}
@@ -391,6 +393,31 @@ func (d *DaemonService) checkStatus() {
 				IsOnline:  online,
 				IsMounted: isMounted,
 				IsPaired:  true,
+			}
+		}
+	}
+
+	// Auto-mount paired devices that come online; auto-unmount devices that went offline
+	for ip, dev := range newDevices {
+		if dev.IsOnline && dev.IsPaired && !dev.IsMounted {
+			// Device is online, paired, and not mounted -> Auto-mount
+			deviceKey := keyring.NormalizeServerKey(dev.Name)
+			token, _ := keyring.GetToken(deviceKey)
+			if token == "" {
+				token, _ = keyring.GetToken("")
+			}
+			if token != "" {
+				if err := d.mounter.Mount(dev.IP, dev.Port, token); err == nil {
+					dev.IsMounted = true
+					newDevices[ip] = dev
+				}
+			}
+		} else if !dev.IsOnline && dev.IsMounted {
+			// Device went offline but was mounted -> Double check with ping before unmounting
+			if !client.Ping(dev.IP, dev.Port) {
+				_ = d.mounter.Unmount(dev.IP, dev.Port)
+				dev.IsMounted = false
+				newDevices[ip] = dev
 			}
 		}
 	}

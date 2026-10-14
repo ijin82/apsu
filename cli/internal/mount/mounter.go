@@ -53,7 +53,8 @@ func (l *linuxMounter) Unmount(ip string, port int) error {
 
 	var lastErr error
 	for _, p := range patterns {
-		cmd := exec.Command("gio", "mount", "-u", p)
+		// Use -f to forcefully detach dead/offline network mounts without hanging
+		cmd := exec.Command("gio", "mount", "-u", "-f", p)
 		out, err := cmd.CombinedOutput()
 		if err == nil {
 			return nil

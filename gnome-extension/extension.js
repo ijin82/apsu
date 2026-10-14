@@ -74,17 +74,19 @@ const QSyncProxy = Gio.DBusProxy.makeProxyWrapper(QSyncIface);
 // Modal Pairing Dialog
 const QSyncPairDialog = GObject.registerClass(
 class QSyncPairDialog extends ModalDialog.ModalDialog {
-    _init(extension) {
+    _init(extension, targetDev = null) {
         super._init({ styleClass: 'qsync-pair-dialog' });
         this._ext = extension;
+        this._targetDev = targetDev;
 
         const content = new St.BoxLayout({
             vertical: true,
             style: 'padding: 20px; spacing: 14px; min-width: 320px;',
         });
 
+        const devTitle = targetDev ? `Pair with ${targetDev.name || 'Phone'}` : 'Pair with Phone';
         const title = new St.Label({
-            text: 'Pair with Phone',
+            text: devTitle,
             style: 'font-weight: bold; font-size: 1.3em; text-align: center;',
         });
         content.add_child(title);
@@ -137,7 +139,10 @@ class QSyncPairDialog extends ModalDialog.ModalDialog {
         this._pairButton.reactive = false;
         this._pairButton.label = 'Pairing...';
 
-        this._ext.pairWithPhone(pin, (success, serverName, errorMsg) => {
+        const targetIP = this._targetDev ? this._targetDev.ip : (this._ext._phoneIP || '');
+        const targetPort = this._targetDev ? (this._targetDev.port || 8484) : 8484;
+
+        this._ext.pairWithPhone(pin, targetIP, targetPort, (success, serverName, errorMsg) => {
             if (success) {
                 this.close();
                 Main.notify('qSync', `Successfully paired with ${serverName}!`);
@@ -191,7 +196,7 @@ class QSyncQuickToggle extends QuickSettings.QuickMenuToggle {
         });
     }
 
-    updateState(active, phoneFound, phoneName, phoneIP, phonePort, isMounted) {
+    updateState(active, phoneFound, phoneName, phoneIP, phonePort, isMounted, isPaired = false) {
         this.checked = active;
 
         if (!active) {
@@ -204,7 +209,8 @@ class QSyncQuickToggle extends QuickSettings.QuickMenuToggle {
             return;
         }
 
-        this._pairAction.visible = true;
+        // Only show Pair in quick settings if a device is found on Wi-Fi and not yet paired
+        this._pairAction.visible = phoneFound && !isPaired;
 
         if (isMounted) {
             this.subtitle = 'Mounted';
@@ -215,7 +221,7 @@ class QSyncQuickToggle extends QuickSettings.QuickMenuToggle {
         } else if (phoneFound) {
             this.subtitle = phoneName || 'Ready';
             this._statusLabel.label.text = `${phoneName} (${phoneIP}:${phonePort}) - Ready`;
-            this._mountAction.visible = true;
+            this._mountAction.visible = isPaired;
             this._openAction.visible = false;
             this._unmountAction.visible = false;
         } else {
@@ -299,41 +305,38 @@ export default class QSyncExtension extends Extension {
         this._devicesSection = new PopupMenu.PopupMenuSection();
         this._indicator.menu.addMenuItem(this._devicesSection);
 
-        this._indicator.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-
-        this._actionPair = new PopupMenu.PopupMenuItem('🤝 Pair New Phone...');
-        this._actionPair.connect('activate', () => this.showPairDialog());
-        this._indicator.menu.addMenuItem(this._actionPair);
-
         this._renderedDevicesKey = '';
     }
 
-    showPairDialog() {
-        if (!this._pairDialog) {
-            this._pairDialog = new QSyncPairDialog(this);
-            this._pairDialog.connect('closed', () => {
-                this._pairDialog = null;
-            });
+    showPairDialog(targetDev = null) {
+        if (this._pairDialog) {
+            this._pairDialog.close();
+            this._pairDialog = null;
         }
+        this._pairDialog = new QSyncPairDialog(this, targetDev);
+        this._pairDialog.connect('closed', () => {
+            this._pairDialog = null;
+        });
         this._pairDialog.open();
     }
 
-    pairWithPhone(pin, callback) {
+    pairWithPhone(pin, ip = '', port = 8484, callback = null) {
         if (!this._proxy) {
-            callback(false, '', 'Daemon not running. Turn on qSync first.');
+            if (callback) callback(false, '', 'Daemon not running. Turn on qSync first.');
             return;
         }
-        const ip = this._phoneIP || '';
-        this._proxy.PairRemote(pin, ip, 8484, (result, err) => {
+        const targetIP = ip || this._phoneIP || '';
+        const targetPort = port || 8484;
+        this._proxy.PairRemote(pin, targetIP, targetPort, (result, err) => {
             if (err || !result) {
-                callback(false, '', err ? err.message : 'Unknown error');
+                if (callback) callback(false, '', err ? err.message : 'Unknown error');
                 return;
             }
             const [success, serverName, errorMsg] = result;
             if (success) {
                 this._refreshStatus();
             }
-            callback(success, serverName, errorMsg);
+            if (callback) callback(success, serverName, errorMsg);
         });
     }
 
@@ -482,7 +485,8 @@ export default class QSyncExtension extends Extension {
                 primary ? primary.name : '',
                 primary ? primary.ip : '',
                 primary ? primary.port : 8484,
-                anyMounted
+                anyMounted,
+                primary ? !!primary.isPaired : false
             );
         }
 
@@ -518,7 +522,7 @@ export default class QSyncExtension extends Extension {
 
         // 3. Render Devices in Menu with cache key check to eliminate flicker
         if (this._devicesSection) {
-            const newKey = JSON.stringify(devices.map(d => `${d.name}_${d.ip}_${d.isOnline}_${d.isMounted}`));
+            const newKey = JSON.stringify(devices.map(d => `${d.name}_${d.ip}_${d.isOnline}_${d.isMounted}_${d.isPaired}`));
             if (newKey !== this._renderedDevicesKey) {
                 this._renderedDevicesKey = newKey;
                 this._devicesSection.removeAll();
@@ -536,7 +540,13 @@ export default class QSyncExtension extends Extension {
     }
 
     _addDeviceMenuItems(section, dev) {
-        const statusText = dev.isMounted ? 'Mounted' : (dev.isOnline ? 'Ready' : 'Offline');
+        let statusText = 'Offline';
+        if (dev.isMounted) {
+            statusText = 'Mounted';
+        } else if (dev.isOnline) {
+            statusText = dev.isPaired ? 'Ready' : 'Unpaired';
+        }
+
         const headerTitle = `📱 ${dev.name} (${dev.ip}) • ${statusText}`;
         const headerItem = new PopupMenu.PopupMenuItem(headerTitle, {reactive: false});
         section.addMenuItem(headerItem);
@@ -550,9 +560,16 @@ export default class QSyncExtension extends Extension {
             unmountItem.connect('activate', () => this.unmountDevice(dev.name, dev.ip, dev.port));
             section.addMenuItem(unmountItem);
         } else if (dev.isOnline) {
-            const mountItem = new PopupMenu.PopupMenuItem('    🔗 Mount');
-            mountItem.connect('activate', () => this.mountDevice(dev.name, dev.ip, dev.port));
-            section.addMenuItem(mountItem);
+            if (!dev.isPaired) {
+                // Show Pair button ONLY for found and unpaired phones
+                const pairItem = new PopupMenu.PopupMenuItem('    🤝 Pair Phone...');
+                pairItem.connect('activate', () => this.showPairDialog(dev));
+                section.addMenuItem(pairItem);
+            } else {
+                const mountItem = new PopupMenu.PopupMenuItem('    🔗 Mount');
+                mountItem.connect('activate', () => this.mountDevice(dev.name, dev.ip, dev.port));
+                section.addMenuItem(mountItem);
+            }
         }
     }
 
