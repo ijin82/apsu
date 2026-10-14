@@ -152,6 +152,33 @@ func TestServerPairingAndWebDAV(t *testing.T) {
 	if string(savedContent) != "Uploaded via WebDAV" {
 		t.Fatalf("unexpected disk content: %s", string(savedContent))
 	}
+
+	// 5. Test /api/auth/verify with valid token
+	verifyReq, err := http.NewRequest("GET", baseURL+"/api/auth/verify", nil)
+	if err != nil {
+		t.Fatalf("failed to create verify request: %v", err)
+	}
+	verifyReq.Header.Set("Authorization", "Bearer "+pairData.Token)
+	verifyResp, err := client.Do(verifyReq)
+	if err != nil {
+		t.Fatalf("verify request failed: %v", err)
+	}
+	defer verifyResp.Body.Close()
+	if verifyResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for valid token on /api/auth/verify, got %d", verifyResp.StatusCode)
+	}
+
+	// 6. Test /api/auth/verify with invalid token
+	badVerifyReq, _ := http.NewRequest("GET", baseURL+"/api/auth/verify", nil)
+	badVerifyReq.Header.Set("Authorization", "Bearer invalid-token-12345")
+	badVerifyResp, err := client.Do(badVerifyReq)
+	if err != nil {
+		t.Fatalf("bad verify request failed: %v", err)
+	}
+	defer badVerifyResp.Body.Close()
+	if badVerifyResp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 Unauthorized for invalid token on /api/auth/verify, got %d", badVerifyResp.StatusCode)
+	}
 }
 
 func httpPortString(port int) string {

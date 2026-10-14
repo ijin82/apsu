@@ -167,3 +167,58 @@ func DeleteToken(serverID string) error {
 	}
 	return nil
 }
+
+// UpdatePairedDevice updates or renames a paired device in config when tokens match
+func UpdatePairedDevice(name, ip string, port int, token string) error {
+	if name == "" {
+		return nil
+	}
+	cfg, err := LoadConfig()
+	if err != nil {
+		cfg = Config{}
+	}
+	if cfg.PairedDevices == nil {
+		cfg.PairedDevices = make(map[string]DeviceInfo)
+	}
+	if cfg.Tokens == nil {
+		cfg.Tokens = make(map[string]string)
+	}
+
+	// Find if this device was previously stored under a different name (matching IP or matching token)
+	var oldNames []string
+	for k, v := range cfg.PairedDevices {
+		if k != name && ((ip != "" && v.IP == ip) || (token != "" && v.Token == token)) {
+			oldNames = append(oldNames, k)
+		}
+	}
+
+	for _, oldName := range oldNames {
+		delete(cfg.PairedDevices, oldName)
+		delete(cfg.Tokens, NormalizeServerKey(oldName))
+		if cfg.LastServerName == oldName {
+			cfg.LastServerName = name
+		}
+	}
+
+	cfg.PairedDevices[name] = DeviceInfo{
+		Name:  name,
+		IP:    ip,
+		Port:  port,
+		Token: token,
+	}
+
+	newKey := NormalizeServerKey(name)
+	cfg.Tokens[newKey] = token
+	if token != "" {
+		cfg.DefaultToken = token
+		cfg.Tokens[DefaultKey] = token
+	}
+
+	if cfg.LastServerIP == ip || cfg.LastServerName == "" {
+		cfg.LastServerName = name
+		cfg.LastServerIP = ip
+		cfg.LastServerPort = port
+	}
+
+	return SaveConfig(cfg)
+}

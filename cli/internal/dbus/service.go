@@ -203,7 +203,23 @@ func (d *DaemonService) MountDevice(name string, ip string, port int) (bool, str
 		return false, "Device not paired yet. Please pair first.", nil
 	}
 
+	if !client.VerifyToken(targetIP, targetPort, token) {
+		if dev, ok := d.devices[targetIP]; ok {
+			dev.IsPaired = false
+			d.devices[targetIP] = dev
+		}
+		d.emitStatusChanged()
+		return false, "Device rejected token (app reinstalled or un-paired). Please pair again.", nil
+	}
+
 	if err := d.mounter.Mount(targetIP, targetPort, token); err != nil {
+		if !client.VerifyToken(targetIP, targetPort, token) {
+			if dev, ok := d.devices[targetIP]; ok {
+				dev.IsPaired = false
+				d.devices[targetIP] = dev
+			}
+			d.emitStatusChanged()
+		}
 		return false, err.Error(), nil
 	}
 
@@ -364,13 +380,33 @@ func (d *DaemonService) checkStatus() {
 			name = actualName
 		}
 
+		// Look up token
 		deviceKey := keyring.NormalizeServerKey(name)
 		token, _ := keyring.GetToken(deviceKey)
 		if token == "" && disc.Name != name {
 			token, _ = keyring.GetToken(keyring.NormalizeServerKey(disc.Name))
 		}
 		if token == "" {
+			for _, p := range cfg.PairedDevices {
+				if p.IP == disc.IP && p.Token != "" {
+					token = p.Token
+					break
+				}
+			}
+		}
+		if token == "" {
 			token, _ = keyring.GetToken("")
+		}
+
+		isPaired := false
+		if isMounted {
+			isPaired = true
+		} else if token != "" {
+			if client.VerifyToken(disc.IP, disc.Port, token) {
+				isPaired = true
+				// Requirement 2: Token matched! Sync device name in config if changed
+				_ = keyring.UpdatePairedDevice(name, disc.IP, disc.Port, token)
+			}
 		}
 
 		newDevices[disc.IP] = DeviceStatus{
@@ -379,7 +415,7 @@ func (d *DaemonService) checkStatus() {
 			Port:      disc.Port,
 			IsOnline:  true,
 			IsMounted: isMounted,
-			IsPaired:  token != "",
+			IsPaired:  isPaired,
 		}
 	}
 
@@ -394,13 +430,37 @@ func (d *DaemonService) checkStatus() {
 					name = actualName
 				}
 			}
+
+			token := p.Token
+			if token == "" {
+				deviceKey := keyring.NormalizeServerKey(name)
+				token, _ = keyring.GetToken(deviceKey)
+				if token == "" {
+					token, _ = keyring.GetToken("")
+				}
+			}
+
+			isPaired := false
+			if isMounted {
+				isPaired = true
+			} else if online {
+				if token != "" && client.VerifyToken(p.IP, p.Port, token) {
+					isPaired = true
+					// Requirement 2: Token matched! Sync device name in config if changed
+					_ = keyring.UpdatePairedDevice(name, p.IP, p.Port, token)
+				}
+			} else {
+				// Offline device retains pairing flag from config
+				isPaired = token != ""
+			}
+
 			newDevices[p.IP] = DeviceStatus{
 				Name:      name,
 				IP:        p.IP,
 				Port:      p.Port,
 				IsOnline:  online,
 				IsMounted: isMounted,
-				IsPaired:  true,
+				IsPaired:  isPaired,
 			}
 		}
 	}

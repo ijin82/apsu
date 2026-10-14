@@ -209,8 +209,11 @@ class QSyncQuickToggle extends QuickSettings.QuickMenuToggle {
             return;
         }
 
-        // Only show Pair in quick settings if a device is found on Wi-Fi and not yet paired
-        this._pairAction.visible = phoneFound && !isPaired;
+        // Show Pair action whenever phone is found and not mounted
+        this._pairAction.visible = phoneFound && !isMounted;
+        if (this._pairAction.label) {
+            this._pairAction.label.text = isPaired ? '🔄 Re-pair Phone...' : '🤝 Pair Phone...';
+        }
 
         if (isMounted) {
             this.subtitle = 'Mounted';
@@ -219,8 +222,13 @@ class QSyncQuickToggle extends QuickSettings.QuickMenuToggle {
             this._openAction.visible = true;
             this._unmountAction.visible = true;
         } else if (phoneFound) {
-            this.subtitle = phoneName || 'Ready';
-            this._statusLabel.label.text = `${phoneName} (${phoneIP}:${phonePort}) - Ready`;
+            if (isPaired) {
+                this.subtitle = phoneName || 'Ready';
+                this._statusLabel.label.text = `${phoneName} (${phoneIP}:${phonePort}) - Ready`;
+            } else {
+                this.subtitle = 'Pairing Required';
+                this._statusLabel.label.text = `${phoneName} (${phoneIP}:${phonePort}) - Pairing Required`;
+            }
             this._mountAction.visible = isPaired;
             this._openAction.visible = false;
             this._unmountAction.visible = false;
@@ -515,7 +523,8 @@ export default class QSyncExtension extends Extension {
         } else if (anyMounted) {
             this._menuHeader.label.text = 'qSync • Mounted';
         } else if (anyOnline) {
-            this._menuHeader.label.text = 'qSync • Ready';
+            const anyPaired = devices.some(d => d.isOnline && d.isPaired);
+            this._menuHeader.label.text = anyPaired ? 'qSync • Ready' : 'qSync • Pairing Required';
         } else {
             this._menuHeader.label.text = 'qSync • Searching Wi-Fi...';
         }
@@ -561,7 +570,7 @@ export default class QSyncExtension extends Extension {
             section.addMenuItem(unmountItem);
         } else if (dev.isOnline) {
             if (!dev.isPaired) {
-                // Show Pair button ONLY for found and unpaired phones
+                // Show Pair button for found and unpaired phones
                 const pairItem = new PopupMenu.PopupMenuItem('    🤝 Pair Phone...');
                 pairItem.connect('activate', () => this.showPairDialog(dev));
                 section.addMenuItem(pairItem);
@@ -569,6 +578,10 @@ export default class QSyncExtension extends Extension {
                 const mountItem = new PopupMenu.PopupMenuItem('    🔗 Mount');
                 mountItem.connect('activate', () => this.mountDevice(dev.name, dev.ip, dev.port));
                 section.addMenuItem(mountItem);
+
+                const rePairItem = new PopupMenu.PopupMenuItem('    🔄 Re-pair Phone...');
+                rePairItem.connect('activate', () => this.showPairDialog(dev));
+                section.addMenuItem(rePairItem);
             }
         }
     }

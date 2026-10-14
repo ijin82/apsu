@@ -205,6 +205,14 @@ var mountCmd = &cobra.Command{
 			return
 		}
 
+		if !client.VerifyToken(targetIP, targetPort, token) {
+			fmt.Println("❌ Device rejected the saved token (pairing mismatch or app reinstalled on phone).")
+			fmt.Println("👉 Please run 'qsync pair' to pair with the phone again.")
+			return
+		}
+
+		_ = keyring.UpdatePairedDevice(targetName, targetIP, targetPort, token)
+
 		m := mount.GetMounter()
 		isMounted, _ := m.IsMounted(targetIP, targetPort)
 		if isMounted {
@@ -303,6 +311,11 @@ var statusCmd = &cobra.Command{
 			isReachable := false
 			if dev.IP != "" {
 				isReachable = client.Ping(dev.IP, dev.Port)
+				if isReachable {
+					if actualName := client.FetchServerName(dev.IP, dev.Port); actualName != "" && actualName != name {
+						name = actualName
+					}
+				}
 			}
 
 			isMounted := false
@@ -311,10 +324,17 @@ var statusCmd = &cobra.Command{
 			}
 
 			fmt.Printf("\n📱 Device: %s (%s:%d)\n", name, dev.IP, dev.Port)
-			if token != "" {
-				fmt.Println("   Pairing:  ✅ Paired")
+			if token != "" && isReachable {
+				if client.VerifyToken(dev.IP, dev.Port, token) {
+					fmt.Println("   Pairing:  ✅ Paired")
+					_ = keyring.UpdatePairedDevice(name, dev.IP, dev.Port, token)
+				} else {
+					fmt.Println("   Pairing:  ⚠️ Invalid/Expired Token (re-pair required: 'qsync pair')")
+				}
+			} else if token != "" {
+				fmt.Println("   Pairing:  ⚪ Paired (offline)")
 			} else {
-				fmt.Println("   Pairing:  ❌ Token not found")
+				fmt.Println("   Pairing:  ❌ Token not found (run 'qsync pair')")
 			}
 
 			if isReachable {

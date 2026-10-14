@@ -97,3 +97,61 @@ func FetchServerName(ip string, port int) string {
 	}
 	return ""
 }
+
+// VerifyToken checks whether the provided token is accepted by the phone server.
+// It first attempts the lightweight /api/auth/verify endpoint, and falls back to
+// WebDAV root with Authorization header for backward compatibility.
+func VerifyToken(ip string, port int, token string) bool {
+	if token == "" || ip == "" {
+		return false
+	}
+	if port <= 0 {
+		port = 8484
+	}
+
+	httpClient := &http.Client{Timeout: 1200 * time.Millisecond}
+
+	// 1. Try /api/auth/verify
+	verifyURL := fmt.Sprintf("http://%s:%d/api/auth/verify", ip, port)
+	req, err := http.NewRequest(http.MethodGet, verifyURL, nil)
+	if err == nil {
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp, err := httpClient.Do(req)
+		if err == nil {
+			resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				return true
+			}
+			if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+				return false
+			}
+			// If not 404, but something else, still fall back to DAV check
+		}
+	}
+
+	// 2. Fallback: WebDAV check on root
+	davURL := fmt.Sprintf("http://%s:%d/", ip, port)
+	reqDAV, err := http.NewRequest("PROPFIND", davURL, nil)
+	if err == nil {
+		reqDAV.Header.Set("Authorization", "Bearer "+token)
+		reqDAV.Header.Set("Depth", "0")
+		resp, err := httpClient.Do(reqDAV)
+		if err == nil {
+			resp.Body.Close()
+			return resp.StatusCode != http.StatusUnauthorized && resp.StatusCode != http.StatusForbidden
+		}
+	}
+
+	// 3. Fallback: GET on root with Bearer token
+	reqGET, err := http.NewRequest(http.MethodGet, davURL, nil)
+	if err == nil {
+		reqGET.Header.Set("Authorization", "Bearer "+token)
+		resp, err := httpClient.Do(reqGET)
+		if err == nil {
+			resp.Body.Close()
+			return resp.StatusCode != http.StatusUnauthorized && resp.StatusCode != http.StatusForbidden
+		}
+	}
+
+	return false
+}

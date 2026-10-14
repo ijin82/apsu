@@ -79,6 +79,7 @@ func (s *Server) Start() error {
 
 	// API endpoints
 	mux.HandleFunc("/api/info", s.handleInfo)
+	mux.HandleFunc("/api/auth/verify", s.handleAuthVerify)
 	mux.HandleFunc("/api/debug", s.handleDebug)
 	mux.HandleFunc("/api/pair", s.handlePair)
 	mux.HandleFunc("/api/pin", s.handleGeneratePIN)
@@ -165,6 +166,31 @@ func (s *Server) handlePair(w http.ResponseWriter, r *http.Request) {
 		Success:    true,
 		Token:      token,
 		ServerName: cfg.ServerName,
+	})
+}
+
+func (s *Server) handleAuthVerify(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	token := ""
+	if _, pass, ok := r.BasicAuth(); ok {
+		token = pass
+	} else if authHeader := r.Header.Get("Authorization"); strings.HasPrefix(authHeader, "Bearer ") {
+		token = strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
+	}
+
+	if token != "" && s.pairingMgr.IsTokenValid(token) {
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"valid":       true,
+			"server_name": s.store.GetConfig().ServerName,
+		})
+		return
+	}
+
+	w.WriteHeader(http.StatusUnauthorized)
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"valid": false,
+		"error": "invalid or expired token",
 	})
 }
 
