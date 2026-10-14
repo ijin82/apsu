@@ -70,17 +70,26 @@ cd android
 ```
 Debug output is generated at `android/app/build/outputs/apk/debug/app-debug.apk`.
 
-### 3. Build the Linux CLI & Daemon
+### 3. Install Linux Desktop Suite (CLI, Daemon & GNOME Extension)
+
+A single installation script handles compiling the CLI, installing the systemd user service, and deploying the GNOME Shell extension:
+
 ```bash
-cd cli
-go build -o qsync ./cmd/qsync
+# Install CLI, systemd daemon, and GNOME Shell extension:
+./scripts/install_linux.sh install
 ```
 
-### 4. Install GNOME Shell Extension
+> [!IMPORTANT]
+> **GNOME Shell Session Restart Required**
+> GNOME Shell only detects newly installed extensions when a session starts.
+> After running `./scripts/install_linux.sh install`:
+> - **Log out and log back in** to your desktop session (or reboot).
+> - On X11, you can also press <kbd>Alt</kbd>+<kbd>F2</kbd>, type `r`, and press <kbd>Enter</kbd>.
+> Once logged in, the **qSync** phone icon will appear in the GNOME Top Bar and the Quick Settings menu.
+
+To uninstall and remove all desktop components:
 ```bash
-mkdir -p ~/.local/share/gnome-shell/extensions/qsync@ijin.github.io
-cp gnome-extension/* ~/.local/share/gnome-shell/extensions/qsync@ijin.github.io/
-gnome-extensions enable qsync@ijin.github.io
+./scripts/install_linux.sh uninstall
 ```
 
 ---
