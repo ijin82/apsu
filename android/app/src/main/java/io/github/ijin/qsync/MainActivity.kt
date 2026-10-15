@@ -610,19 +610,6 @@ fun QSyncMainScreen(
                                         }
                                         if (!pin.isNullOrEmpty()) {
                                             pairPin = pin
-                                        } else {
-                                            coroutineScope.launch(Dispatchers.IO) {
-                                                try {
-                                                    val body = URL("http://127.0.0.1:8484/api/pin").readText()
-                                                    val obj = JSONObject(body)
-                                                    val p = obj.optString("pin")
-                                                    if (p.isNotEmpty()) {
-                                                        withContext(Dispatchers.Main) {
-                                                            pairPin = p
-                                                        }
-                                                    }
-                                                } catch (_: Exception) {}
-                                            }
                                         }
                                     }
                                 ) {

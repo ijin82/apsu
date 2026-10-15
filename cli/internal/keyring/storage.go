@@ -149,15 +149,22 @@ func SaveToken(serverID, token string) error {
 }
 
 func GetToken(serverID string) (string, error) {
-	if serverID == "" {
-		serverID = DefaultKey
-	}
 	configMu.Lock()
 	defer configMu.Unlock()
 
 	cfg, err := loadConfigLocked()
 	if err != nil {
 		return "", fmt.Errorf("failed to load config: %w", err)
+	}
+
+	if serverID == "" || serverID == DefaultKey {
+		if token, ok := cfg.Tokens[DefaultKey]; ok && token != "" {
+			return token, nil
+		}
+		if cfg.DefaultToken != "" {
+			return cfg.DefaultToken, nil
+		}
+		return "", fmt.Errorf("default token not found")
 	}
 
 	if token, ok := cfg.Tokens[serverID]; ok && token != "" {
@@ -169,15 +176,6 @@ func GetToken(serverID string) (string, error) {
 			if dev.Token != "" {
 				return dev.Token, nil
 			}
-		}
-	}
-	// Fallback to default token
-	if serverID != DefaultKey {
-		if token, ok := cfg.Tokens[DefaultKey]; ok && token != "" {
-			return token, nil
-		}
-		if cfg.DefaultToken != "" {
-			return cfg.DefaultToken, nil
 		}
 	}
 

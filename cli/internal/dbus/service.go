@@ -575,13 +575,13 @@ func (d *DaemonService) checkStatus() {
 			name = actualName
 		}
 
-		// Look up token
-		deviceKey := keyring.NormalizeServerKey(name)
-		token, _ := keyring.GetToken(deviceKey)
-		if token == "" && disc.Name != name {
-			token, _ = keyring.GetToken(keyring.NormalizeServerKey(disc.Name))
-		}
-		if token == "" {
+		// Look up token strictly for known paired devices (do not leak DefaultToken to unknown devices)
+		token := ""
+		if p, ok := cfg.PairedDevices[name]; ok && p.Token != "" {
+			token = p.Token
+		} else if p, ok := cfg.PairedDevices[disc.Name]; ok && p.Token != "" {
+			token = p.Token
+		} else {
 			for _, p := range cfg.PairedDevices {
 				if p.IP == disc.IP && p.Token != "" {
 					token = p.Token
@@ -590,7 +590,14 @@ func (d *DaemonService) checkStatus() {
 			}
 		}
 		if token == "" {
-			token, _ = keyring.GetToken("")
+			deviceKey := keyring.NormalizeServerKey(name)
+			if t, err := keyring.GetToken(deviceKey); err == nil && t != "" {
+				token = t
+			} else if disc.Name != name {
+				if t, err := keyring.GetToken(keyring.NormalizeServerKey(disc.Name)); err == nil && t != "" {
+					token = t
+				}
+			}
 		}
 
 		isPaired := false
@@ -653,9 +660,6 @@ func (d *DaemonService) checkStatus() {
 			if token == "" {
 				deviceKey := keyring.NormalizeServerKey(name)
 				token, _ = keyring.GetToken(deviceKey)
-				if token == "" {
-					token, _ = keyring.GetToken("")
-				}
 			}
 
 			isPaired := false

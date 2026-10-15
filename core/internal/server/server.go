@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -80,9 +79,7 @@ func (s *Server) Start() error {
 	// API endpoints
 	mux.HandleFunc("/api/info", s.handleInfo)
 	mux.HandleFunc("/api/auth/verify", s.handleAuthVerify)
-	mux.HandleFunc("/api/debug", s.handleDebug)
 	mux.HandleFunc("/api/pair", s.handlePair)
-	mux.HandleFunc("/api/pin", s.handleGeneratePIN)
 	mux.HandleFunc("/api/folders", s.handleFoldersAPI)
 
 	// WebDAV with Auth check
@@ -169,16 +166,25 @@ func (s *Server) handlePair(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) authenticateRequest(r *http.Request) bool {
+	if _, pass, ok := r.BasicAuth(); ok && pass != "" {
+		if s.pairingMgr.IsTokenValid(pass) {
+			return true
+		}
+	}
+	authHeader := r.Header.Get("Authorization")
+	if strings.HasPrefix(authHeader, "Bearer ") {
+		token := strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
+		if token != "" && s.pairingMgr.IsTokenValid(token) {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Server) handleAuthVerify(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	token := ""
-	if _, pass, ok := r.BasicAuth(); ok {
-		token = pass
-	} else if authHeader := r.Header.Get("Authorization"); strings.HasPrefix(authHeader, "Bearer ") {
-		token = strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
-	}
-
-	if token != "" && s.pairingMgr.IsTokenValid(token) {
+	if s.authenticateRequest(r) {
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"valid":       true,
@@ -205,22 +211,9 @@ func (s *Server) handleWebDAV(handler *webdav.Handler, w http.ResponseWriter, r 
 		return
 	}
 
-	// 1. Check HTTP Basic Auth (password is token)
-	if _, pass, ok := r.BasicAuth(); ok {
-		if s.pairingMgr.IsTokenValid(pass) {
-			handler.ServeHTTP(w, r)
-			return
-		}
-	}
-
-	// 2. Check Bearer token in Authorization header
-	authHeader := r.Header.Get("Authorization")
-	if strings.HasPrefix(authHeader, "Bearer ") {
-		token := strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
-		if s.pairingMgr.IsTokenValid(token) {
-			handler.ServeHTTP(w, r)
-			return
-		}
+	if s.authenticateRequest(r) {
+		handler.ServeHTTP(w, r)
+		return
 	}
 
 	// Unauthorized
@@ -228,53 +221,46 @@ func (s *Server) handleWebDAV(handler *webdav.Handler, w http.ResponseWriter, r 
 	http.Error(w, "Unauthorized: Pairing required", http.StatusUnauthorized)
 }
 
+type PublicFolderInfo struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	IsSync bool   `json:"is_sync,omitempty"`
+}
+
 type InfoResponse struct {
-	Name    string                 `json:"name"`
-	Version string                 `json:"version"`
-	Port    int                    `json:"port"`
-	Folders []storage.SharedFolder `json:"folders"`
-}
-
-type FolderDebugInfo struct {
-	Name         string   `json:"name"`
-	Path         string   `json:"path"`
-	Exists       bool     `json:"exists"`
-	IsDir        bool     `json:"is_dir"`
-	Mode         string   `json:"mode"`
-	ReadDirCount int      `json:"readdir_count"`
-	ReadDirErr   string   `json:"readdir_err,omitempty"`
-	SampleFiles  []string `json:"sample_files"`
-}
-
-type DebugResponse struct {
-	UID         int               `json:"uid"`
-	GID         int               `json:"gid"`
-	StorageRoot string            `json:"storage_root"`
-	RootCount   int               `json:"root_count"`
-	RootErr     string            `json:"root_err,omitempty"`
-	RootDirs    []string          `json:"root_dirs"`
-	Folders     []FolderDebugInfo `json:"folders"`
+	Name    string             `json:"name"`
+	Version string             `json:"version"`
+	Port    int                `json:"port"`
+	Folders []PublicFolderInfo `json:"folders"`
 }
 
 func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) {
 	cfg := s.store.GetConfig()
 	w.Header().Set("Content-Type", "application/json")
+	pubFolders := make([]PublicFolderInfo, len(cfg.Folders))
+	for i, f := range cfg.Folders {
+		pubFolders[i] = PublicFolderInfo{
+			ID:     f.ID,
+			Name:   f.Name,
+			IsSync: f.IsSync,
+		}
+	}
 	_ = json.NewEncoder(w).Encode(InfoResponse{
 		Name:    cfg.ServerName,
 		Version: "1.0",
 		Port:    s.boundPort,
-		Folders: cfg.Folders,
+		Folders: pubFolders,
 	})
-}
-
-func (s *Server) handleGeneratePIN(w http.ResponseWriter, r *http.Request) {
-	pin, _ := s.pairingMgr.GeneratePIN()
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{"pin": pin})
 }
 
 func (s *Server) handleFoldersAPI(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+	if !s.authenticateRequest(r) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized: valid token required"})
+		return
+	}
+
 	switch r.Method {
 	case http.MethodGet:
 		cfg := s.store.GetConfig()
@@ -302,64 +288,6 @@ func (s *Server) handleFoldersAPI(w http.ResponseWriter, r *http.Request) {
 		}
 		_ = json.NewEncoder(w).Encode(map[string]bool{"success": true})
 	}
-}
-
-func (s *Server) handleDebug(w http.ResponseWriter, r *http.Request) {
-	resp := DebugResponse{
-		UID:         os.Getuid(),
-		GID:         os.Getgid(),
-		StorageRoot: "/storage/emulated/0",
-		Folders:     make([]FolderDebugInfo, 0),
-	}
-
-	if entries, err := os.ReadDir("/storage/emulated/0"); err != nil {
-		resp.RootErr = err.Error()
-	} else {
-		resp.RootCount = len(entries)
-		for _, e := range entries {
-			if e.IsDir() {
-				resp.RootDirs = append(resp.RootDirs, e.Name())
-			}
-		}
-	}
-
-	cfg := s.store.GetConfig()
-	for _, f := range cfg.Folders {
-		info := FolderDebugInfo{
-			Name: f.Name,
-			Path: f.Path,
-		}
-		fi, err := os.Stat(f.Path)
-		if err != nil {
-			info.Exists = false
-			info.ReadDirErr = "stat error: " + err.Error()
-		} else {
-			info.Exists = true
-			info.IsDir = fi.IsDir()
-			info.Mode = fi.Mode().String()
-
-			entries, err := os.ReadDir(f.Path)
-			if err != nil {
-				info.ReadDirErr = "readdir error: " + err.Error()
-			} else {
-				info.ReadDirCount = len(entries)
-				for i, e := range entries {
-					if i >= 10 {
-						break
-					}
-					t := "file"
-					if e.IsDir() {
-						t = "dir"
-					}
-					info.SampleFiles = append(info.SampleFiles, fmt.Sprintf("%s (%s)", e.Name(), t))
-				}
-			}
-		}
-		resp.Folders = append(resp.Folders, info)
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(resp)
 }
 
 // GetLocalIPs returns non-loopback IPv4 addresses, prioritizing Wi-Fi

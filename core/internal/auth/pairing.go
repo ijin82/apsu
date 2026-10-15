@@ -2,6 +2,7 @@ package auth
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
 	"math/big"
@@ -11,11 +12,18 @@ import (
 	"qsync/core/internal/storage"
 )
 
+const (
+	MaxFailedAttempts = 5
+	LockoutDuration   = 1 * time.Minute
+)
+
 type PairingManager struct {
-	mu           sync.Mutex
-	store        *storage.Manager
-	activePIN    string
-	pinExpiresAt time.Time
+	mu             sync.Mutex
+	store          *storage.Manager
+	activePIN      string
+	pinExpiresAt   time.Time
+	failedAttempts int
+	lockoutUntil   time.Time
 }
 
 func NewPairingManager(store *storage.Manager) *PairingManager {
@@ -24,10 +32,17 @@ func NewPairingManager(store *storage.Manager) *PairingManager {
 	}
 }
 
-// GeneratePIN creates a new 6-digit PIN valid for 5 minutes
+// GeneratePIN creates a new 6-digit PIN valid for 5 minutes and resets failed attempts
 func (p *PairingManager) GeneratePIN() (string, time.Duration) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+
+	// If locked out, return empty
+	if time.Now().Before(p.lockoutUntil) {
+		return "", time.Until(p.lockoutUntil)
+	}
+
+	p.failedAttempts = 0
 
 	// Generate 6 digit number
 	n, _ := rand.Int(rand.Reader, big.NewInt(900000))
@@ -44,6 +59,7 @@ func (p *PairingManager) ClearPIN() {
 	defer p.mu.Unlock()
 	p.activePIN = ""
 	p.pinExpiresAt = time.Time{}
+	p.failedAttempts = 0
 }
 
 // GetActivePIN returns current PIN if valid, or empty string
@@ -63,17 +79,35 @@ func (p *PairingManager) ValidatePINAndPair(pin, deviceName string) (string, err
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	if time.Now().Before(p.lockoutUntil) {
+		remaining := time.Until(p.lockoutUntil).Round(time.Second)
+		if remaining < time.Second {
+			remaining = time.Second
+		}
+		return "", fmt.Errorf("pairing locked due to too many failed attempts; try again in %v", remaining)
+	}
+
 	if p.activePIN == "" || time.Now().After(p.pinExpiresAt) {
+		p.activePIN = ""
 		return "", fmt.Errorf("no active pairing session or PIN expired")
 	}
 
-	if p.activePIN != pin {
-		return "", fmt.Errorf("invalid PIN")
+	if subtle.ConstantTimeCompare([]byte(p.activePIN), []byte(pin)) != 1 {
+		p.failedAttempts++
+		if p.failedAttempts >= MaxFailedAttempts {
+			p.activePIN = ""
+			p.pinExpiresAt = time.Time{}
+			p.lockoutUntil = time.Now().Add(LockoutDuration)
+			return "", fmt.Errorf("too many invalid PIN attempts; pairing locked for %v", LockoutDuration)
+		}
+		return "", fmt.Errorf("invalid PIN (%d attempts remaining)", MaxFailedAttempts-p.failedAttempts)
 	}
 
-	// Invalidate PIN after successful use
+	// Invalidate PIN and reset counters after successful use
 	p.activePIN = ""
 	p.pinExpiresAt = time.Time{}
+	p.failedAttempts = 0
+	p.lockoutUntil = time.Time{}
 
 	// Generate 32-byte crypto token
 	b := make([]byte, 32)

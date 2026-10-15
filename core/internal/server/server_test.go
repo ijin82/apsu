@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"qsync/core/internal/auth"
@@ -178,6 +179,111 @@ func TestServerPairingAndWebDAV(t *testing.T) {
 	defer badVerifyResp.Body.Close()
 	if badVerifyResp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("expected 401 Unauthorized for invalid token on /api/auth/verify, got %d", badVerifyResp.StatusCode)
+	}
+}
+
+func TestServerSecurityHardening(t *testing.T) {
+	_, pairingMgr, srv, _, _ := setupTestEnv(t)
+	if err := srv.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer srv.Stop()
+
+	baseURL := "http://127.0.0.1:" + httpPortString(srv.Port())
+	client := &http.Client{}
+
+	// 1. /api/pin MUST be removed: unauthenticated calls fall to WebDAV 401 (not API JSON)
+	pinResp, err := client.Get(baseURL + "/api/pin")
+	if err != nil {
+		t.Fatalf("failed to query /api/pin: %v", err)
+	}
+	pinBody, _ := io.ReadAll(pinResp.Body)
+	pinResp.Body.Close()
+	if pinResp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for unauthenticated /api/pin, got %d", pinResp.StatusCode)
+	}
+	if strings.Contains(string(pinBody), "pin") {
+		t.Fatalf("security violation: /api/pin returned PIN data: %s", string(pinBody))
+	}
+
+	// 2. /api/debug MUST be removed: unauthenticated calls fall to WebDAV 401 (not debug JSON)
+	debugResp, err := client.Get(baseURL + "/api/debug")
+	if err != nil {
+		t.Fatalf("failed to query /api/debug: %v", err)
+	}
+	debugBody, _ := io.ReadAll(debugResp.Body)
+	debugResp.Body.Close()
+	if debugResp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for unauthenticated /api/debug, got %d", debugResp.StatusCode)
+	}
+	if strings.Contains(string(debugBody), "storage_root") || strings.Contains(string(debugBody), "sample_files") {
+		t.Fatalf("security violation: /api/debug returned debug data: %s", string(debugBody))
+	}
+
+	// 3. /api/folders MUST reject unauthenticated GET, POST, DELETE with 401
+	foldersGetResp, err := client.Get(baseURL + "/api/folders")
+	if err != nil {
+		t.Fatalf("failed to query /api/folders: %v", err)
+	}
+	foldersGetResp.Body.Close()
+	if foldersGetResp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 Unauthorized for unauthenticated GET /api/folders, got %d", foldersGetResp.StatusCode)
+	}
+
+	foldersPostReq, _ := http.NewRequest("POST", baseURL+"/api/folders", bytes.NewReader([]byte(`{"name":"Evil","path":"/storage/emulated/0"}`)))
+	foldersPostResp, err := client.Do(foldersPostReq)
+	if err != nil {
+		t.Fatalf("failed to POST /api/folders: %v", err)
+	}
+	foldersPostResp.Body.Close()
+	if foldersPostResp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 Unauthorized for unauthenticated POST /api/folders, got %d", foldersPostResp.StatusCode)
+	}
+
+	// Pair to get a valid token
+	pin, _ := pairingMgr.GeneratePIN()
+	token, err := pairingMgr.ValidatePINAndPair(pin, "Client-PC")
+	if err != nil {
+		t.Fatalf("pairing failed: %v", err)
+	}
+
+	// Authenticated GET /api/folders MUST succeed
+	authFoldersReq, _ := http.NewRequest("GET", baseURL+"/api/folders", nil)
+	authFoldersReq.Header.Set("Authorization", "Bearer "+token)
+	authFoldersResp, err := client.Do(authFoldersReq)
+	if err != nil {
+		t.Fatalf("auth GET /api/folders failed: %v", err)
+	}
+	defer authFoldersResp.Body.Close()
+	if authFoldersResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for authenticated /api/folders, got %d", authFoldersResp.StatusCode)
+	}
+
+	// 4. /api/info MUST NOT leak filesystem paths
+	infoResp, err := client.Get(baseURL + "/api/info")
+	if err != nil {
+		t.Fatalf("failed to query /api/info: %v", err)
+	}
+	defer infoResp.Body.Close()
+	if infoResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for /api/info, got %d", infoResp.StatusCode)
+	}
+	infoBody, _ := io.ReadAll(infoResp.Body)
+
+	// Parse as generic JSON map to check for presence of any "path" key inside folders
+	var infoMap struct {
+		Folders []map[string]interface{} `json:"folders"`
+	}
+	if err := json.Unmarshal(infoBody, &infoMap); err != nil {
+		t.Fatalf("failed to parse /api/info JSON: %v", err)
+	}
+	if len(infoMap.Folders) == 0 {
+		t.Fatalf("expected folders in /api/info")
+	}
+	for _, f := range infoMap.Folders {
+		if pathVal, exists := f["path"]; exists && pathVal != "" {
+			t.Fatalf("security violation: /api/info leaked internal filesystem path: %v", pathVal)
+		}
 	}
 }
 
