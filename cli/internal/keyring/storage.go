@@ -6,10 +6,13 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	oskeyring "github.com/zalando/go-keyring"
 )
 
 const (
-	DefaultKey = "default_token"
+	ServiceName = "qsync"
+	DefaultKey  = "default_token"
 )
 
 var configMu sync.Mutex
@@ -134,6 +137,9 @@ func SaveToken(serverID, token string) error {
 	if serverID == "" {
 		serverID = DefaultKey
 	}
+	// Save to system keyring if available
+	_ = oskeyring.Set(ServiceName, serverID, token)
+
 	configMu.Lock()
 	defer configMu.Unlock()
 
@@ -149,6 +155,14 @@ func SaveToken(serverID, token string) error {
 }
 
 func GetToken(serverID string) (string, error) {
+	if serverID == "" {
+		serverID = DefaultKey
+	}
+	// 1. Try system keyring first
+	if tok, err := oskeyring.Get(ServiceName, serverID); err == nil && tok != "" {
+		return tok, nil
+	}
+
 	configMu.Lock()
 	defer configMu.Unlock()
 
@@ -157,7 +171,7 @@ func GetToken(serverID string) (string, error) {
 		return "", fmt.Errorf("failed to load config: %w", err)
 	}
 
-	if serverID == "" || serverID == DefaultKey {
+	if serverID == DefaultKey {
 		if token, ok := cfg.Tokens[DefaultKey]; ok && token != "" {
 			return token, nil
 		}
@@ -173,6 +187,9 @@ func GetToken(serverID string) (string, error) {
 	// Check inside PairedDevices map
 	for name, dev := range cfg.PairedDevices {
 		if name == serverID || NormalizeServerKey(name) == serverID {
+			if tok, err := oskeyring.Get(ServiceName, name); err == nil && tok != "" {
+				return tok, nil
+			}
 			if dev.Token != "" {
 				return dev.Token, nil
 			}
@@ -186,6 +203,8 @@ func DeleteToken(serverID string) error {
 	if serverID == "" {
 		serverID = DefaultKey
 	}
+	_ = oskeyring.Delete(ServiceName, serverID)
+
 	configMu.Lock()
 	defer configMu.Unlock()
 
@@ -230,6 +249,8 @@ func UpdatePairedDevice(name, ip string, port int, token string) error {
 	for _, oldName := range oldNames {
 		delete(cfg.PairedDevices, oldName)
 		delete(cfg.Tokens, NormalizeServerKey(oldName))
+		_ = oskeyring.Delete(ServiceName, oldName)
+		_ = oskeyring.Delete(ServiceName, NormalizeServerKey(oldName))
 		if cfg.LastServerName == oldName {
 			cfg.LastServerName = name
 		}
@@ -258,6 +279,9 @@ func UpdatePairedDevice(name, ip string, port int, token string) error {
 	if token != "" {
 		cfg.DefaultToken = token
 		cfg.Tokens[DefaultKey] = token
+		_ = oskeyring.Set(ServiceName, newKey, token)
+		_ = oskeyring.Set(ServiceName, name, token)
+		_ = oskeyring.Set(ServiceName, DefaultKey, token)
 	}
 
 	if cfg.LastServerIP == ip || cfg.LastServerName == "" {

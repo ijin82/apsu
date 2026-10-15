@@ -3,10 +3,35 @@ package mount
 import (
 	"bytes"
 	"fmt"
+	"net"
 	"os/exec"
 	"runtime"
 	"strings"
 )
+
+func validateHostAndPort(ip string, port int) error {
+	if port <= 0 || port > 65535 {
+		return fmt.Errorf("invalid port: %d", port)
+	}
+	if net.ParseIP(ip) != nil {
+		return nil
+	}
+	// Check hostname syntax (RFC 1123)
+	if len(ip) == 0 || len(ip) > 255 {
+		return fmt.Errorf("invalid host length: %d", len(ip))
+	}
+	for _, part := range strings.Split(ip, ".") {
+		if len(part) == 0 || len(part) > 63 {
+			return fmt.Errorf("invalid host format: %s", ip)
+		}
+		for _, c := range part {
+			if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-') {
+				return fmt.Errorf("invalid host character %q in %s", c, ip)
+			}
+		}
+	}
+	return nil
+}
 
 type Mounter interface {
 	Mount(ip string, port int, token string) error
@@ -30,6 +55,9 @@ func GetMounter() Mounter {
 type linuxMounter struct{}
 
 func (l *linuxMounter) Mount(ip string, port int, token string) error {
+	if err := validateHostAndPort(ip, port); err != nil {
+		return err
+	}
 	uri := fmt.Sprintf("dav://qsync@%s:%d/", ip, port)
 	cmd := exec.Command("gio", "mount", uri)
 	cmd.Stdin = strings.NewReader(token + "\n")
@@ -46,6 +74,9 @@ func (l *linuxMounter) Mount(ip string, port int, token string) error {
 }
 
 func (l *linuxMounter) Unmount(ip string, port int) error {
+	if err := validateHostAndPort(ip, port); err != nil {
+		return err
+	}
 	patterns := []string{
 		fmt.Sprintf("dav://qsync@%s:%d/", ip, port),
 		fmt.Sprintf("dav://%s:%d/", ip, port),
@@ -69,6 +100,9 @@ func (l *linuxMounter) Unmount(ip string, port int) error {
 }
 
 func (l *linuxMounter) IsMounted(ip string, port int) (bool, error) {
+	if err := validateHostAndPort(ip, port); err != nil {
+		return false, err
+	}
 	cmd := exec.Command("gio", "mount", "-l")
 	out, err := cmd.Output()
 	if err != nil {
@@ -81,6 +115,9 @@ func (l *linuxMounter) IsMounted(ip string, port int) (bool, error) {
 }
 
 func (l *linuxMounter) OpenInFileManager(ip string, port int) error {
+	if err := validateHostAndPort(ip, port); err != nil {
+		return err
+	}
 	uri := fmt.Sprintf("dav://qsync@%s:%d/", ip, port)
 	cmd := exec.Command("gio", "open", uri)
 	if err := cmd.Start(); err != nil {
@@ -94,7 +131,12 @@ func (l *linuxMounter) OpenInFileManager(ip string, port int) error {
 type darwinMounter struct{}
 
 func (d *darwinMounter) Mount(ip string, port int, token string) error {
-	url := fmt.Sprintf("http://qsync:%s@%s:%d/", token, ip, port)
+	if err := validateHostAndPort(ip, port); err != nil {
+		return err
+	}
+	cleanToken := strings.ReplaceAll(token, `\`, `\\`)
+	cleanToken = strings.ReplaceAll(cleanToken, `"`, `\"`)
+	url := fmt.Sprintf("http://qsync:%s@%s:%d/", cleanToken, ip, port)
 	cmd := exec.Command("osascript", "-e", fmt.Sprintf(`mount volume "%s"`, url))
 	return cmd.Run()
 }
@@ -105,6 +147,9 @@ func (d *darwinMounter) Unmount(ip string, port int) error {
 }
 
 func (d *darwinMounter) IsMounted(ip string, port int) (bool, error) {
+	if err := validateHostAndPort(ip, port); err != nil {
+		return false, err
+	}
 	cmd := exec.Command("mount")
 	out, err := cmd.Output()
 	if err != nil {
@@ -121,18 +166,27 @@ func (d *darwinMounter) OpenInFileManager(ip string, port int) error {
 type windowsMounter struct{}
 
 func (w *windowsMounter) Mount(ip string, port int, token string) error {
+	if err := validateHostAndPort(ip, port); err != nil {
+		return err
+	}
 	url := fmt.Sprintf("http://%s:%d/", ip, port)
 	cmd := exec.Command("net", "use", "*", url, token, "/user:qsync")
 	return cmd.Run()
 }
 
 func (w *windowsMounter) Unmount(ip string, port int) error {
+	if err := validateHostAndPort(ip, port); err != nil {
+		return err
+	}
 	url := fmt.Sprintf("http://%s:%d/", ip, port)
 	cmd := exec.Command("net", "use", url, "/delete", "/y")
 	return cmd.Run()
 }
 
 func (w *windowsMounter) IsMounted(ip string, port int) (bool, error) {
+	if err := validateHostAndPort(ip, port); err != nil {
+		return false, err
+	}
 	cmd := exec.Command("net", "use")
 	out, err := cmd.Output()
 	if err != nil {
@@ -142,6 +196,9 @@ func (w *windowsMounter) IsMounted(ip string, port int) (bool, error) {
 }
 
 func (w *windowsMounter) OpenInFileManager(ip string, port int) error {
+	if err := validateHostAndPort(ip, port); err != nil {
+		return err
+	}
 	url := fmt.Sprintf("http://%s:%d/", ip, port)
 	return exec.Command("explorer.exe", url).Run()
 }

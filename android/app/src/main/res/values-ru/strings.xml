@@ -64,4 +64,12 @@
     <string name="notification_channel_desc">Поддерживает файловый сервер qSync активным в фоновом режиме</string>
     <string name="notification_title">qSync запущен</string>
     <string name="notification_text">Локальный обмен файлами по Wi-Fi активен</string>
+
+    <!-- Paired Devices -->
+    <string name="paired_devices_title">Сопряжённые компьютеры</string>
+    <string name="paired_devices_empty">Нет сопряжённых компьютеров. Нажмите «Подключить ПК» для спаривания.</string>
+    <string name="paired_devices_revoke">Отозвать</string>
+    <string name="paired_devices_revoke_confirm_title">Отозвать доступ?</string>
+    <string name="paired_devices_revoke_confirm_msg">Вы уверены, что хотите отозвать доступ для %1$s? Этот компьютер больше не сможет подключаться и синхронизировать файлы.</string>
+    <string name="paired_devices_last_used">Был в сети: %1$s</string>
 </resources>

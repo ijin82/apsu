@@ -10,4 +10,5 @@ object QSyncBridge {
     external fun stopServer()
     external fun isServerRunning(): Boolean
     external fun generatePIN(): String?
+    external fun revokeDevice(token: String): Boolean
 }

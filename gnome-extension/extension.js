@@ -746,13 +746,23 @@ export default class QSyncExtension extends Extension {
     }
 
     _stopDaemon() {
-        // Also force-unmount any dav mounts for qsync in user session
+        // Also force-unmount any dav mounts for qsync in user session safely
         try {
             if (this._lastDevices && this._lastDevices.length > 0) {
+                const ipRegex = /^[a-zA-Z0-9.:%-]+$/;
+                const launcher = new Gio.SubprocessLauncher({
+                    flags: Gio.SubprocessFlags.NONE,
+                });
                 this._lastDevices.forEach(d => {
-                    const port = d.port || 8484;
-                    GLib.spawn_command_line_async(`gio mount -u -f dav://qsync@${d.ip}:${port}/`);
-                    GLib.spawn_command_line_async(`gio mount -u -f dav://${d.ip}:${port}/`);
+                    if (d.ip && ipRegex.test(d.ip)) {
+                        const port = Number.isInteger(d.port) && d.port > 0 && d.port <= 65535 ? d.port : 8484;
+                        try {
+                            launcher.spawnv(['gio', 'mount', '-u', '-f', `dav://qsync@${d.ip}:${port}/`]);
+                        } catch (err) {}
+                        try {
+                            launcher.spawnv(['gio', 'mount', '-u', '-f', `dav://${d.ip}:${port}/`]);
+                        } catch (err) {}
+                    }
                 });
             }
         } catch (e) {}

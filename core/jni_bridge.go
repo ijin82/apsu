@@ -142,4 +142,25 @@ func Java_io_github_ijin_qsync_QSyncBridge_generatePIN(env *C.JNIEnv, clazz C.jc
 	return C.new_string_utf(env, cStr)
 }
 
+//export Java_io_github_ijin_qsync_QSyncBridge_revokeDevice
+func Java_io_github_ijin_qsync_QSyncBridge_revokeDevice(env *C.JNIEnv, clazz C.jclass, tokenStr C.jstring) C.jboolean {
+	engineLock.Lock()
+	defer engineLock.Unlock()
+
+	if store == nil {
+		return C.JNI_FALSE
+	}
+	cStr := C.get_string_utf(env, tokenStr)
+	if cStr == nil {
+		return C.JNI_FALSE
+	}
+	token := C.GoString(cStr)
+	C.release_string_utf(env, tokenStr, cStr)
+
+	if err := store.RevokeDevice(token); err != nil {
+		return C.JNI_FALSE
+	}
+	return C.JNI_TRUE
+}
+
 func main() {}

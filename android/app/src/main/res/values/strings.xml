@@ -64,4 +64,12 @@
     <string name="notification_channel_desc">Keeps qSync file server active in background</string>
     <string name="notification_title">qSync is Running</string>
     <string name="notification_text">Local Wi-Fi file sharing is active</string>
+
+    <!-- Paired Devices -->
+    <string name="paired_devices_title">Paired Computers</string>
+    <string name="paired_devices_empty">No computers paired yet. Tap \'Pair PC\' to connect.</string>
+    <string name="paired_devices_revoke">Revoke</string>
+    <string name="paired_devices_revoke_confirm_title">Revoke Access?</string>
+    <string name="paired_devices_revoke_confirm_msg">Are you sure you want to revoke access for %1$s? This computer will no longer be able to connect or sync.</string>
+    <string name="paired_devices_last_used">Last accessed: %1$s</string>
 </resources>

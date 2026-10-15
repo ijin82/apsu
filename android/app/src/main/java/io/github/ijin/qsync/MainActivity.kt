@@ -277,6 +277,7 @@ class MainActivity : ComponentActivity() {
 }
 
 data class SharedFolder(val id: String, val name: String, val path: String, val isSync: Boolean = false)
+data class TrustedDeviceItem(val token: String, val deviceName: String, val createdAt: String = "", val lastUsed: String = "")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -315,6 +316,8 @@ fun QSyncMainScreen(
 
     var pairPin by remember { mutableStateOf<String?>(null) }
     var folders by remember { mutableStateOf(listOf<SharedFolder>()) }
+    var trustedDevices by remember { mutableStateOf(listOf<TrustedDeviceItem>()) }
+    var deviceToRevoke by remember { mutableStateOf<TrustedDeviceItem?>(null) }
 
     // Settings modal and state
     var showSettingsDialog by remember { mutableStateOf(false) }
@@ -326,7 +329,7 @@ fun QSyncMainScreen(
     var newFolderPath by remember { mutableStateOf("") }
     var newFolderIsSync by remember { mutableStateOf(false) }
 
-    // Helper to read config (folders and server_name)
+    // Helper to read config (folders, server_name, trusted_devices)
     fun readConfig() {
         try {
             if (configFile.exists()) {
@@ -349,7 +352,47 @@ fun QSyncMainScreen(
                     )
                 }
                 folders = list
+
+                val devsObj = json.optJSONObject("trusted_devices")
+                val dList = mutableListOf<TrustedDeviceItem>()
+                if (devsObj != null) {
+                    val keys = devsObj.keys()
+                    while (keys.hasNext()) {
+                        val key = keys.next()
+                        val dev = devsObj.optJSONObject(key)
+                        if (dev != null) {
+                            val token = dev.optString("token", key)
+                            val dName = dev.optString("device_name", "Unknown PC")
+                            val createdAt = dev.optString("created_at", "")
+                            val lastUsed = dev.optString("last_used", "")
+                            dList.add(TrustedDeviceItem(token, dName, createdAt, lastUsed))
+                        }
+                    }
+                }
+                trustedDevices = dList
             }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    // Helper to revoke a trusted device
+    fun revokeDevice(item: TrustedDeviceItem) {
+        try {
+            try {
+                QSyncBridge.revokeDevice(item.token)
+            } catch (ignored: Exception) {}
+
+            if (configFile.exists()) {
+                val json = JSONObject(configFile.readText())
+                val devs = json.optJSONObject("trusted_devices")
+                if (devs != null) {
+                    devs.remove(item.token)
+                    json.put("trusted_devices", devs)
+                    configFile.writeText(json.toString(2))
+                }
+            }
+            trustedDevices = trustedDevices.filter { it.token != item.token }
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -433,6 +476,7 @@ fun QSyncMainScreen(
             }
             currentIp = getWifiIp()
             isRunning = QSyncService.isRunning
+            readConfig()
             delay(2000)
         }
     }
@@ -759,7 +803,115 @@ fun QSyncMainScreen(
                     }
                 }
             }
+
+            // 4. Paired Computers Section
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        stringResource(R.string.paired_devices_title),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
+                }
+            }
+
+            if (trustedDevices.isEmpty()) {
+                item {
+                    Text(
+                        stringResource(R.string.paired_devices_empty),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 14.sp
+                    )
+                }
+            } else {
+                items(trustedDevices) { device ->
+                    Card(
+                        shape = RoundedCornerShape(8.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        elevation = CardDefaults.cardElevation(1.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_laptop),
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    device.deviceName,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 16.sp,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                val timeDisplay = when {
+                                    device.lastUsed.isNotBlank() -> device.lastUsed.take(19).replace('T', ' ')
+                                    device.createdAt.isNotBlank() -> device.createdAt.take(19).replace('T', ' ')
+                                    else -> ""
+                                }
+                                if (timeDisplay.isNotBlank()) {
+                                    Text(
+                                        stringResource(R.string.paired_devices_last_used, timeDisplay),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontSize = 12.sp
+                                    )
+                                }
+                            }
+                            OutlinedButton(
+                                onClick = { deviceToRevoke = device },
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    contentColor = MaterialTheme.colorScheme.error
+                                ),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                            ) {
+                                Text(stringResource(R.string.paired_devices_revoke), fontSize = 13.sp)
+                            }
+                        }
+                    }
+                }
+            }
         }
+    }
+
+    // Revoke Device Confirmation Dialog
+    if (deviceToRevoke != null) {
+        val target = deviceToRevoke!!
+        AlertDialog(
+            onDismissRequest = { deviceToRevoke = null },
+            title = { Text(stringResource(R.string.paired_devices_revoke_confirm_title)) },
+            text = {
+                Text(stringResource(R.string.paired_devices_revoke_confirm_msg, target.deviceName))
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        revokeDevice(target)
+                        deviceToRevoke = null
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError
+                    )
+                ) {
+                    Text(stringResource(R.string.paired_devices_revoke))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { deviceToRevoke = null }) {
+                    Text(stringResource(R.string.btn_cancel))
+                }
+            }
+        )
     }
 
     // Add Folder Confirmation Dialog

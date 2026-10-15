@@ -88,9 +88,12 @@ func (s *Server) Start() error {
 	})
 
 	s.httpServer = &http.Server{
-		Handler:      mux,
-		ReadTimeout:  1 * time.Hour,
-		WriteTimeout: 1 * time.Hour,
+		Handler:           mux,
+		ReadTimeout:       1 * time.Hour,
+		WriteTimeout:      1 * time.Hour,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20,
 	}
 
 	s.running = true
@@ -142,6 +145,7 @@ func (s *Server) handlePair(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
 	var req PairRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -266,6 +270,7 @@ func (s *Server) handleFoldersAPI(w http.ResponseWriter, r *http.Request) {
 		cfg := s.store.GetConfig()
 		_ = json.NewEncoder(w).Encode(cfg.Folders)
 	case http.MethodPost:
+		r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
 		var req struct {
 			Name   string `json:"name"`
 			Path   string `json:"path"`

@@ -103,3 +103,44 @@ func TestSyncMappings(t *testing.T) {
 		t.Fatalf("expected mappings migrated to Phone B, got %v", bMappings)
 	}
 }
+
+func TestTokenStorageAndIsolation(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tempDir)
+
+	// Save token for Phone1
+	err := SaveToken("dev_phone1", "secret-token-phone1")
+	if err != nil {
+		t.Fatalf("SaveToken failed: %v", err)
+	}
+
+	// Save token for Phone2
+	err = SaveToken("dev_phone2", "secret-token-phone2")
+	if err != nil {
+		t.Fatalf("SaveToken failed: %v", err)
+	}
+
+	// Verify isolation
+	tok1, err := GetToken("dev_phone1")
+	if err != nil || tok1 != "secret-token-phone1" {
+		t.Fatalf("expected token-phone1, got: %s (err: %v)", tok1, err)
+	}
+
+	tok2, err := GetToken("dev_phone2")
+	if err != nil || tok2 != "secret-token-phone2" {
+		t.Fatalf("expected token-phone2, got: %s (err: %v)", tok2, err)
+	}
+
+	// Querying non-existent server MUST NOT return phone1 or phone2's token
+	_, err = GetToken("dev_unknown_phone")
+	if err == nil {
+		t.Fatalf("expected error for unknown phone token, but got success")
+	}
+
+	// Delete token
+	_ = DeleteToken("dev_phone1")
+	_, err = GetToken("dev_phone1")
+	if err == nil {
+		t.Fatalf("token for phone1 should have been deleted")
+	}
+}
