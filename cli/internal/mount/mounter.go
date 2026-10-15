@@ -170,7 +170,8 @@ func (w *windowsMounter) Mount(ip string, port int, token string) error {
 		return err
 	}
 	url := fmt.Sprintf("http://%s:%d/", ip, port)
-	cmd := exec.Command("net", "use", "*", url, token, "/user:qsync")
+	cmd := exec.Command("net", "use", "*", url, "*", "/user:qsync")
+	cmd.Stdin = strings.NewReader(token + "\r\n")
 	return cmd.Run()
 }
 

@@ -356,6 +356,39 @@ func TestServerSecurityHardening(t *testing.T) {
 	if respRateLimited.StatusCode != http.StatusTooManyRequests {
 		t.Fatalf("expected 429 Too Many Requests after 20 failed attempts, got %d", respRateLimited.StatusCode)
 	}
+
+	// 7. WebDAV request from rate-limited IP MUST return 429 Too Many Requests
+	davReq, _ := http.NewRequest("GET", baseURL+"/Docs/hello.txt", nil)
+	davResp, err := client.Do(davReq)
+	if err != nil {
+		t.Fatalf("WebDAV request failed: %v", err)
+	}
+	defer davResp.Body.Close()
+	if davResp.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("expected 429 for rate-limited IP on WebDAV, got %d", davResp.StatusCode)
+	}
+
+	// 8. Test Rate Limiting on /api/pair
+	for i := 0; i < 5; i++ {
+		pReq := PairRequest{PIN: "000000", DeviceName: "Attacker"}
+		b, _ := json.Marshal(pReq)
+		r, _ := http.Post(baseURL+"/api/pair", "application/json", bytes.NewReader(b))
+		if r != nil {
+			r.Body.Close()
+		}
+	}
+
+	// 6th pair attempt from same IP must be rate limited with 429
+	pReq := PairRequest{PIN: "000000", DeviceName: "Attacker"}
+	b, _ := json.Marshal(pReq)
+	pResp, err := http.Post(baseURL+"/api/pair", "application/json", bytes.NewReader(b))
+	if err != nil {
+		t.Fatalf("pair request failed: %v", err)
+	}
+	defer pResp.Body.Close()
+	if pResp.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("expected 429 Too Many Requests on /api/pair after 5 failed attempts, got %d", pResp.StatusCode)
+	}
 }
 
 func httpPortString(port int) string {

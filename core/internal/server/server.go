@@ -31,6 +31,7 @@ type Server struct {
 
 	rateMu     sync.Mutex
 	failedAuth map[string][]time.Time
+	failedPair map[string][]time.Time
 }
 
 type PairRequest struct {
@@ -52,6 +53,7 @@ func NewServer(store *storage.Manager, pairingMgr *auth.PairingManager) *Server 
 		store:      store,
 		pairingMgr: pairingMgr,
 		failedAuth: make(map[string][]time.Time),
+		failedPair: make(map[string][]time.Time),
 	}
 }
 
@@ -213,6 +215,17 @@ func (s *Server) handlePair(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ip := getClientIP(r)
+	if s.isPairRateLimited(ip) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_ = json.NewEncoder(w).Encode(PairResponse{
+			Success: false,
+			Error:   "too many pairing attempts from this IP; please wait 1 minute",
+		})
+		return
+	}
+
 	r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
 	var req PairRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -225,6 +238,7 @@ func (s *Server) handlePair(w http.ResponseWriter, r *http.Request) {
 	token, err := s.pairingMgr.ValidatePINAndPair(req.PIN, req.DeviceName)
 	w.Header().Set("Content-Type", "application/json")
 	if err != nil {
+		s.recordFailedPair(ip)
 		w.WriteHeader(http.StatusUnauthorized)
 		_ = json.NewEncoder(w).Encode(PairResponse{Success: false, Error: err.Error()})
 		return
@@ -246,6 +260,63 @@ func getClientIP(r *http.Request) string {
 		return r.RemoteAddr
 	}
 	return host
+}
+
+// pruneRateLimitMap removes entries older than 2 minutes and evicts excess entries
+func pruneRateLimitMap(m map[string][]time.Time, maxEntries int) {
+	cutoff := time.Now().Add(-2 * time.Minute)
+	for ip, list := range m {
+		var active []time.Time
+		for _, t := range list {
+			if t.After(cutoff) {
+				active = append(active, t)
+			}
+		}
+		if len(active) == 0 {
+			delete(m, ip)
+		} else {
+			m[ip] = active
+		}
+	}
+	if len(m) > maxEntries {
+		// Evict entries if over capacity
+		for k := range m {
+			delete(m, k)
+			if len(m) <= maxEntries {
+				break
+			}
+		}
+	}
+}
+
+func (s *Server) isPairRateLimited(ip string) bool {
+	s.rateMu.Lock()
+	defer s.rateMu.Unlock()
+
+	attempts, exists := s.failedPair[ip]
+	if !exists {
+		return false
+	}
+
+	cutoff := time.Now().Add(-1 * time.Minute)
+	var recent []time.Time
+	for _, t := range attempts {
+		if t.After(cutoff) {
+			recent = append(recent, t)
+		}
+	}
+	s.failedPair[ip] = recent
+
+	// More than 5 failed PIN pairing attempts from this IP within 1 minute
+	return len(recent) >= 5
+}
+
+func (s *Server) recordFailedPair(ip string) {
+	s.rateMu.Lock()
+	defer s.rateMu.Unlock()
+
+	pruneRateLimitMap(s.failedPair, 500)
+	s.failedPair[ip] = append(s.failedPair[ip], time.Now())
 }
 
 func (s *Server) isRateLimited(ip string) bool {
@@ -274,15 +345,8 @@ func (s *Server) recordFailedAuth(ip string) {
 	s.rateMu.Lock()
 	defer s.rateMu.Unlock()
 
-	cutoff := time.Now().Add(-1 * time.Minute)
-	var recent []time.Time
-	for _, t := range s.failedAuth[ip] {
-		if t.After(cutoff) {
-			recent = append(recent, t)
-		}
-	}
-	recent = append(recent, time.Now())
-	s.failedAuth[ip] = recent
+	pruneRateLimitMap(s.failedAuth, 500)
+	s.failedAuth[ip] = append(s.failedAuth[ip], time.Now())
 }
 
 func (s *Server) authenticateRequest(r *http.Request) bool {
@@ -345,6 +409,12 @@ func (s *Server) handleWebDAV(handler *webdav.Handler, w http.ResponseWriter, r 
 
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	ip := getClientIP(r)
+	if s.isRateLimited(ip) {
+		http.Error(w, "Too many failed authentication attempts; rate limited", http.StatusTooManyRequests)
 		return
 	}
 
