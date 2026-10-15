@@ -58,9 +58,16 @@ rm -rf "${ROOT_DIR}/android/app/src/main/jniLibs/armeabi-v7a" "${ROOT_DIR}/andro
 "${ROOT_DIR}/scripts/build_android_native.sh" arm64
 
 echo "Compiling Android application (version ${CLEAN_VERSION})..."
-(cd "${ROOT_DIR}/android" && ./gradlew assembleDebug -PappVersion="${CLEAN_VERSION}")
-
-APK_PATH="${ROOT_DIR}/android/app/build/outputs/apk/debug/app-debug.apk"
+if grep -q "RELEASE_STORE_FILE" "${ROOT_DIR}/android/local.properties" 2>/dev/null && \
+   grep -q "RELEASE_STORE_PASSWORD" "${ROOT_DIR}/android/local.properties" 2>/dev/null; then
+    echo "==> Detected release signing in local.properties. Building signed Release APK..."
+    (cd "${ROOT_DIR}/android" && ./gradlew assembleRelease -PappVersion="${CLEAN_VERSION}")
+    APK_PATH="${ROOT_DIR}/android/app/build/outputs/apk/release/app-release.apk"
+else
+    echo "==> Release signing not configured in local.properties. Building Debug APK..."
+    (cd "${ROOT_DIR}/android" && ./gradlew assembleDebug -PappVersion="${CLEAN_VERSION}")
+    APK_PATH="${ROOT_DIR}/android/app/build/outputs/apk/debug/app-debug.apk"
+fi
 if [ ! -f "${APK_PATH}" ]; then
     echo "ERROR: APK build failed or file not found at ${APK_PATH}" >&2
     exit 1

@@ -36,20 +36,31 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.net.Inet4Address
 import java.net.NetworkInterface
+import java.net.URL
+import java.util.Locale
 
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import android.content.res.Configuration
+
+enum class AppLanguage(val code: String, val titleRes: Int) {
+    EN("en", R.string.settings_lang_en),
+    RU("ru", R.string.settings_lang_ru);
+
+    companion object {
+        fun fromCode(code: String?): AppLanguage =
+            entries.firstOrNull { it.code.equals(code, ignoreCase = true) } ?: EN
+    }
+}
 
 enum class AppThemeMode {
     SYSTEM, LIGHT, DARK
@@ -83,12 +94,41 @@ private val LightColors = lightColorScheme(
 
 class MainActivity : ComponentActivity() {
 
+    override fun applyOverrideConfiguration(overrideConfiguration: Configuration?) {
+        if (overrideConfiguration != null) {
+            val prefs = getSharedPreferences("qsync_prefs", Context.MODE_PRIVATE)
+            val langCode = prefs.getString("app_language", AppLanguage.EN.code) ?: AppLanguage.EN.code
+            val locale = Locale(langCode)
+            Locale.setDefault(locale)
+            overrideConfiguration.setLocale(locale)
+            overrideConfiguration.setLayoutDirection(locale)
+        }
+        super.applyOverrideConfiguration(overrideConfiguration)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         ensureDefaultDownloadFolder()
 
         val prefs = getSharedPreferences("qsync_prefs", Context.MODE_PRIVATE)
+        val savedLangCode = prefs.getString("app_language", AppLanguage.EN.code) ?: AppLanguage.EN.code
+        val appLocale = Locale(savedLangCode)
+        Locale.setDefault(appLocale)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val localeManager = getSystemService(android.app.LocaleManager::class.java)
+            val targetList = android.os.LocaleList(Locale.forLanguageTag(savedLangCode))
+            if (localeManager?.applicationLocales != targetList) {
+                localeManager?.applicationLocales = targetList
+            }
+        } else {
+            val config = resources.configuration
+            config.setLocale(appLocale)
+            config.setLayoutDirection(appLocale)
+            @Suppress("DEPRECATION")
+            resources.updateConfiguration(config, resources.displayMetrics)
+        }
 
         setContent {
             val themeModeStr = remember {
@@ -99,6 +139,11 @@ class MainActivity : ComponentActivity() {
             } catch (e: Exception) {
                 AppThemeMode.SYSTEM
             }
+
+            val langCodeStr = remember {
+                mutableStateOf(prefs.getString("app_language", AppLanguage.EN.code) ?: AppLanguage.EN.code)
+            }
+            val currentLanguage = AppLanguage.fromCode(langCodeStr.value)
 
             val isDark = when (themeMode) {
                 AppThemeMode.SYSTEM -> isSystemInDarkTheme()
@@ -127,6 +172,18 @@ class MainActivity : ComponentActivity() {
                         onThemeModeChanged = { newMode ->
                             prefs.edit().putString("theme_mode", newMode.name).apply()
                             themeModeStr.value = newMode.name
+                        },
+                        currentLanguage = currentLanguage,
+                        onLanguageChanged = { newLang ->
+                            if (newLang != currentLanguage) {
+                                prefs.edit().putString("app_language", newLang.code).apply()
+                                langCodeStr.value = newLang.code
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                    val localeManager = getSystemService(android.app.LocaleManager::class.java)
+                                    localeManager?.applicationLocales = android.os.LocaleList(Locale.forLanguageTag(newLang.code))
+                                }
+                                recreate()
+                            }
                         }
                     )
                 }
@@ -231,11 +288,12 @@ fun QSyncMainScreen(
     getWifiIp: () -> String,
     configFile: File,
     currentThemeMode: AppThemeMode,
-    onThemeModeChanged: (AppThemeMode) -> Unit
+    onThemeModeChanged: (AppThemeMode) -> Unit,
+    currentLanguage: AppLanguage,
+    onLanguageChanged: (AppLanguage) -> Unit
 ) {
-    val context = androidx.compose.ui.platform.LocalContext.current
+    val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
-    val httpClient = remember { OkHttpClient() }
 
     var isRunning by remember { mutableStateOf(QSyncService.isRunning) }
     var currentIp by remember { mutableStateOf(getWifiIp()) }
@@ -382,12 +440,12 @@ fun QSyncMainScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("qSync", fontWeight = FontWeight.Bold) },
+                title = { Text(stringResource(R.string.app_name), fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = { showSettingsDialog = true }) {
                         Icon(
                             imageVector = Icons.Default.Menu,
-                            contentDescription = "Settings",
+                            contentDescription = stringResource(R.string.settings_title),
                             tint = Color.White
                         )
                     }
@@ -422,14 +480,14 @@ fun QSyncMainScreen(
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    "Storage Permission Needed",
+                                    stringResource(R.string.perm_storage_title),
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onErrorContainer
                                 )
                             }
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                "To access files in folders like Downloads or Photos created by other apps, grant 'All files access'.",
+                                stringResource(R.string.perm_storage_desc),
                                 fontSize = 14.sp,
                                 color = MaterialTheme.colorScheme.onErrorContainer
                             )
@@ -441,7 +499,7 @@ fun QSyncMainScreen(
                                     contentColor = MaterialTheme.colorScheme.onError
                                 )
                             ) {
-                                Text("Grant Permission in 1-Tap")
+                                Text(stringResource(R.string.perm_storage_button))
                             }
                         }
                     }
@@ -464,14 +522,14 @@ fun QSyncMainScreen(
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    "Background Connection",
+                                    stringResource(R.string.perm_battery_title),
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                "To prevent Android from disconnecting when switching apps, allow qSync to run in the background.",
+                                stringResource(R.string.perm_battery_desc),
                                 fontSize = 14.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -479,7 +537,7 @@ fun QSyncMainScreen(
                             FilledTonalButton(
                                 onClick = onRequestBatteryOptimization
                             ) {
-                                Text("Keep Alive in Background")
+                                Text(stringResource(R.string.perm_battery_button))
                             }
                         }
                     }
@@ -503,7 +561,7 @@ fun QSyncMainScreen(
                             )
                             Spacer(modifier = Modifier.width(10.dp))
                             Text(
-                                text = if (isRunning) "Server: Running" else "Server: Stopped",
+                                text = stringResource(if (isRunning) R.string.server_running else R.string.server_stopped),
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 18.sp,
                                 color = MaterialTheme.colorScheme.onSurface
@@ -512,7 +570,7 @@ fun QSyncMainScreen(
 
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            text = "Device Name: $deviceName",
+                            text = stringResource(R.string.server_device_name, deviceName),
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Medium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -520,7 +578,7 @@ fun QSyncMainScreen(
 
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = if (isRunning) "http://$currentIp:8484" else "Wi-Fi: $currentIp",
+                            text = if (isRunning) "http://$currentIp:8484" else stringResource(R.string.server_wifi_ip, currentIp),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 14.sp
                         )
@@ -538,7 +596,7 @@ fun QSyncMainScreen(
                                     contentColor = Color.White
                                 )
                             ) {
-                                Text(if (isRunning) "Stop Server" else "Start Server")
+                                Text(stringResource(if (isRunning) R.string.server_stop else R.string.server_start))
                             }
 
                             if (isRunning) {
@@ -555,11 +613,10 @@ fun QSyncMainScreen(
                                         } else {
                                             coroutineScope.launch(Dispatchers.IO) {
                                                 try {
-                                                    val req = Request.Builder().url("http://127.0.0.1:8484/api/pin").build()
-                                                    val res = httpClient.newCall(req).execute()
-                                                    if (res.isSuccessful) {
-                                                        val obj = JSONObject(res.body?.string() ?: "{}")
-                                                        val p = obj.optString("pin")
+                                                    val body = URL("http://127.0.0.1:8484/api/pin").readText()
+                                                    val obj = JSONObject(body)
+                                                    val p = obj.optString("pin")
+                                                    if (p.isNotEmpty()) {
                                                         withContext(Dispatchers.Main) {
                                                             pairPin = p
                                                         }
@@ -569,7 +626,7 @@ fun QSyncMainScreen(
                                         }
                                     }
                                 ) {
-                                    Text("Pair PC")
+                                    Text(stringResource(R.string.server_pair_pc))
                                 }
                             }
                         }
@@ -588,7 +645,7 @@ fun QSyncMainScreen(
                                     horizontalAlignment = Alignment.CenterHorizontally
                                 ) {
                                     Text(
-                                        "Pairing PIN Code",
+                                        stringResource(R.string.pairing_pin_title),
                                         fontSize = 13.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -602,7 +659,7 @@ fun QSyncMainScreen(
                                     )
                                     Spacer(modifier = Modifier.height(4.dp))
                                     TextButton(onClick = { pairPin = null }) {
-                                        Text("Dismiss")
+                                        Text(stringResource(R.string.btn_dismiss))
                                     }
                                 }
                             }
@@ -619,7 +676,7 @@ fun QSyncMainScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        "Shared Folders",
+                        stringResource(R.string.folders_title),
                         fontWeight = FontWeight.Bold,
                         fontSize = 18.sp,
                         color = MaterialTheme.colorScheme.onBackground
@@ -634,7 +691,7 @@ fun QSyncMainScreen(
                     ) {
                         Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Add Folder")
+                        Text(stringResource(R.string.folders_add_btn))
                     }
                 }
             }
@@ -642,7 +699,7 @@ fun QSyncMainScreen(
             if (folders.isEmpty()) {
                 item {
                     Text(
-                        "No folders shared. Click '+ Add Folder' to choose one.",
+                        stringResource(R.string.folders_empty),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 14.sp
                     )
@@ -681,7 +738,7 @@ fun QSyncMainScreen(
                                             color = MaterialTheme.colorScheme.primaryContainer
                                         ) {
                                             Text(
-                                                "Sync Target",
+                                                stringResource(R.string.folders_sync_target_badge),
                                                 fontSize = 11.sp,
                                                 fontWeight = FontWeight.Bold,
                                                 color = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -707,7 +764,7 @@ fun QSyncMainScreen(
                             ) {
                                 Icon(
                                     Icons.Default.Delete,
-                                    contentDescription = "Delete Folder",
+                                    contentDescription = stringResource(R.string.folders_delete_cd),
                                     tint = if (!isRunning) Color(0xFFE74C3C) else Color.LightGray
                                 )
                             }
@@ -725,17 +782,21 @@ fun QSyncMainScreen(
                 showAddDialog = false
                 newFolderIsSync = false
             },
-            title = { Text("Share Folder") },
+            title = { Text(stringResource(R.string.dialog_share_folder_title)) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     OutlinedTextField(
                         value = newFolderName,
                         onValueChange = { newFolderName = it },
-                        label = { Text("Folder Name") },
+                        label = { Text(stringResource(R.string.dialog_folder_name_label)) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
-                    Text("Path: $newFolderPath", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        stringResource(R.string.dialog_path_label, newFolderPath),
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
 
                     Row(
                         modifier = Modifier
@@ -749,7 +810,7 @@ fun QSyncMainScreen(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            "Syncable folder (Desktop ➔ Phone)",
+                            stringResource(R.string.dialog_syncable_checkbox),
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Medium
                         )
@@ -762,7 +823,7 @@ fun QSyncMainScreen(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(
-                                text = "This is a sync target folder. Its contents will be managed by the desktop app. Do not edit or store new files here directly, as they may be overwritten or deleted during synchronization.",
+                                text = stringResource(R.string.dialog_sync_target_warning),
                                 fontSize = 12.sp,
                                 lineHeight = 16.sp,
                                 color = MaterialTheme.colorScheme.onErrorContainer,
@@ -777,10 +838,13 @@ fun QSyncMainScreen(
                     onClick = {
                         val trimmedPath = newFolderPath.trim().trimEnd('/')
                         if (newFolderIsSync && (trimmedPath == "/storage/emulated/0" || trimmedPath == "/storage/emulated" || trimmedPath == "/storage")) {
-                            Toast.makeText(context, "Cannot set the entire root storage as a sync target!", Toast.LENGTH_LONG).show()
+                            Toast.makeText(context, context.getString(R.string.dialog_root_storage_error), Toast.LENGTH_LONG).show()
                             return@Button
                         }
-                        val name = newFolderName.trim().ifEmpty { File(newFolderPath).name }
+                        val name = newFolderName.trim().ifEmpty {
+                            val fName = File(newFolderPath).name
+                            if (fName.isEmpty() || fName == "0") context.getString(R.string.folders_default_name) else fName
+                        }
                         val id = System.currentTimeMillis().toString()
                         val newFolder = SharedFolder(id = id, name = name, path = newFolderPath, isSync = newFolderIsSync)
                         val updated = folders + newFolder
@@ -792,7 +856,7 @@ fun QSyncMainScreen(
                     },
                     enabled = !isRunning
                 ) {
-                    Text("Add")
+                    Text(stringResource(R.string.btn_add))
                 }
             },
             dismissButton = {
@@ -800,7 +864,7 @@ fun QSyncMainScreen(
                     showAddDialog = false
                     newFolderIsSync = false
                 }) {
-                    Text("Cancel")
+                    Text(stringResource(R.string.btn_cancel))
                 }
             }
         )
@@ -816,7 +880,7 @@ fun QSyncMainScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.Settings, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Settings", fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.settings_title), fontWeight = FontWeight.Bold)
                 }
             },
             text = {
@@ -826,10 +890,71 @@ fun QSyncMainScreen(
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    // Theme Selector Section
+                    // 1. Device Name Section (Название устройства)
                     Column {
                         Text(
-                            "Theme",
+                            stringResource(R.string.settings_device_name_title),
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 15.sp,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            stringResource(if (isRunning) R.string.settings_device_name_running else R.string.settings_device_name_hint),
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = tempDeviceName,
+                            onValueChange = { tempDeviceName = it },
+                            enabled = !isRunning,
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+
+                    HorizontalDivider()
+
+                    // 2. Language Switcher Section (Переключатель языка)
+                    Column {
+                        Text(
+                            stringResource(R.string.settings_language_title),
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 15.sp,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        val languages = listOf(
+                            AppLanguage.RU to stringResource(R.string.settings_lang_ru),
+                            AppLanguage.EN to stringResource(R.string.settings_lang_en)
+                        )
+
+                        languages.forEach { (lang, label) ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onLanguageChanged(lang) }
+                                    .padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                RadioButton(
+                                    selected = (currentLanguage == lang),
+                                    onClick = { onLanguageChanged(lang) }
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(label, fontSize = 14.sp)
+                            }
+                        }
+                    }
+
+                    HorizontalDivider()
+
+                    // 3. Theme Selector Section (Выбор цветовой темы)
+                    Column {
+                        Text(
+                            stringResource(R.string.settings_theme_title),
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 15.sp,
                             color = MaterialTheme.colorScheme.onSurface
@@ -837,9 +962,9 @@ fun QSyncMainScreen(
                         Spacer(modifier = Modifier.height(6.dp))
 
                         val modes = listOf(
-                            AppThemeMode.SYSTEM to "System Default",
-                            AppThemeMode.LIGHT to "Light Theme",
-                            AppThemeMode.DARK to "Dark Theme"
+                            AppThemeMode.SYSTEM to stringResource(R.string.settings_theme_system),
+                            AppThemeMode.LIGHT to stringResource(R.string.settings_theme_light),
+                            AppThemeMode.DARK to stringResource(R.string.settings_theme_dark)
                         )
 
                         modes.forEach { (mode, label) ->
@@ -862,38 +987,12 @@ fun QSyncMainScreen(
 
                     HorizontalDivider()
 
-                    // Device Name Section
-                    Column {
-                        Text(
-                            "Device Name",
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 15.sp,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            if (isRunning) "Stop server to change device name" else "Shown to desktop for discovery",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        OutlinedTextField(
-                            value = tempDeviceName,
-                            onValueChange = { tempDeviceName = it },
-                            enabled = !isRunning,
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-
-                    HorizontalDivider()
-
                     // App Version Section
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text("Version", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(stringResource(R.string.settings_version_label), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(BuildConfig.VERSION_NAME, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                     }
                 }
@@ -908,7 +1007,7 @@ fun QSyncMainScreen(
                         showSettingsDialog = false
                     }
                 ) {
-                    Text("Close")
+                    Text(stringResource(R.string.btn_close))
                 }
             }
         )

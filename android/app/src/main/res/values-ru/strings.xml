@@ -1,0 +1,67 @@
+<resources>
+    <string name="app_name">qSync</string>
+
+    <!-- Верхняя панель -->
+    <string name="settings_title">Настройки</string>
+
+    <!-- Карточки разрешений -->
+    <string name="perm_storage_title">Требуется доступ к хранилищу</string>
+    <string name="perm_storage_desc">Для доступа к файлам в папках «Загрузки», «Фото» и др., созданным другими приложениями, предоставьте «Доступ ко всем файлам».</string>
+    <string name="perm_storage_button">Предоставить доступ в 1 касание</string>
+
+    <string name="perm_battery_title">Работа в фоновом режиме</string>
+    <string name="perm_battery_desc">Чтобы связь не прерывалась при переключении приложений, разрешите qSync работать в фоне.</string>
+    <string name="perm_battery_button">Разрешить фоновую работу</string>
+
+    <!-- Карточка сервера -->
+    <string name="server_running">Сервер: Запущен</string>
+    <string name="server_stopped">Сервер: Остановлен</string>
+    <string name="server_device_name">Имя устройства: %1$s</string>
+    <string name="server_wifi_ip">Wi-Fi: %1$s</string>
+    <string name="server_start">Запустить</string>
+    <string name="server_stop">Остановить</string>
+    <string name="server_pair_pc">PIN</string>
+    <string name="pairing_pin_title">PIN</string>
+    <string name="btn_dismiss">Скрыть</string>
+
+    <!-- Секция общих папок -->
+    <string name="folders_title">Общие папки</string>
+    <string name="folders_add_btn">Добавить папку</string>
+    <string name="folders_empty">Нет общих папок. Нажмите «+ Добавить папку», чтобы выбрать каталог.</string>
+    <string name="folders_sync_target_badge">Синхронизация</string>
+    <string name="folders_delete_cd">Удалить папку</string>
+    <string name="folders_default_name">Хранилище</string>
+
+    <!-- Диалог добавления папки -->
+    <string name="dialog_share_folder_title">Открыть доступ к папке</string>
+    <string name="dialog_folder_name_label">Имя папки</string>
+    <string name="dialog_path_label">Путь: %1$s</string>
+    <string name="dialog_syncable_checkbox">Папка для синхронизации (ПК ➔ Телефон)</string>
+    <string name="dialog_sync_target_warning">Это папка для синхронизации. Её содержимое управляется компьютером. Не сохраняйте здесь важные файлы напрямую с телефона, так как они могут быть перезаписаны или удалены при синхронизации.</string>
+    <string name="dialog_root_storage_error">Нельзя выбрать всё хранилище как папку синхронизации!</string>
+    <string name="btn_add">Добавить</string>
+    <string name="btn_cancel">Отмена</string>
+
+    <!-- Диалог настроек -->
+    <string name="settings_device_name_title">Название устройства</string>
+    <string name="settings_device_name_hint">Отображается на компьютере при поиске</string>
+    <string name="settings_device_name_running">Остановите сервер для изменения имени</string>
+
+    <string name="settings_language_title">Язык</string>
+    <string name="settings_lang_en">English</string>
+    <string name="settings_lang_ru">Русский</string>
+
+    <string name="settings_theme_title">Выбор цветовой темы</string>
+    <string name="settings_theme_system">Системная</string>
+    <string name="settings_theme_light">Светлая</string>
+    <string name="settings_theme_dark">Тёмная</string>
+
+    <string name="settings_version_label">Версия</string>
+    <string name="btn_close">Закрыть</string>
+
+    <!-- Уведомления службы -->
+    <string name="notification_channel_name">Служба обмена файлами qSync</string>
+    <string name="notification_channel_desc">Поддерживает файловый сервер qSync активным в фоновом режиме</string>
+    <string name="notification_title">qSync запущен</string>
+    <string name="notification_text">Локальный обмен файлами по Wi-Fi активен</string>
+</resources>

@@ -1,4 +1,67 @@
-<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">qSync</string>
+
+    <!-- Top Bar -->
+    <string name="settings_title">Settings</string>
+
+    <!-- Permissions Cards -->
+    <string name="perm_storage_title">Storage Permission Needed</string>
+    <string name="perm_storage_desc">To access files in folders like Downloads or Photos created by other apps, grant \'All files access\'.</string>
+    <string name="perm_storage_button">Grant Permission in 1-Tap</string>
+
+    <string name="perm_battery_title">Background Connection</string>
+    <string name="perm_battery_desc">To prevent Android from disconnecting when switching apps, allow qSync to run in the background.</string>
+    <string name="perm_battery_button">Keep Alive in Background</string>
+
+    <!-- Server Card -->
+    <string name="server_running">Server: Running</string>
+    <string name="server_stopped">Server: Stopped</string>
+    <string name="server_device_name">Device Name: %1$s</string>
+    <string name="server_wifi_ip">Wi-Fi: %1$s</string>
+    <string name="server_start">Start Server</string>
+    <string name="server_stop">Stop Server</string>
+    <string name="server_pair_pc">Pair PC</string>
+    <string name="pairing_pin_title">Pairing PIN Code</string>
+    <string name="btn_dismiss">Dismiss</string>
+
+    <!-- Folders Section -->
+    <string name="folders_title">Shared Folders</string>
+    <string name="folders_add_btn">Add Folder</string>
+    <string name="folders_empty">No folders shared. Click \'+ Add Folder\' to choose one.</string>
+    <string name="folders_sync_target_badge">Sync Target</string>
+    <string name="folders_delete_cd">Delete Folder</string>
+    <string name="folders_default_name">Storage</string>
+
+    <!-- Add Folder Dialog -->
+    <string name="dialog_share_folder_title">Share Folder</string>
+    <string name="dialog_folder_name_label">Folder Name</string>
+    <string name="dialog_path_label">Path: %1$s</string>
+    <string name="dialog_syncable_checkbox">Syncable folder (Desktop ➔ Phone)</string>
+    <string name="dialog_sync_target_warning">This is a sync target folder. Its contents will be managed by the desktop app. Do not edit or store new files here directly, as they may be overwritten or deleted during synchronization.</string>
+    <string name="dialog_root_storage_error">Cannot set the entire root storage as a sync target!</string>
+    <string name="btn_add">Add</string>
+    <string name="btn_cancel">Cancel</string>
+
+    <!-- Settings Dialog -->
+    <string name="settings_device_name_title">Device Name</string>
+    <string name="settings_device_name_hint">Shown to desktop for discovery</string>
+    <string name="settings_device_name_running">Stop server to change device name</string>
+
+    <string name="settings_language_title">Language</string>
+    <string name="settings_lang_en">English</string>
+    <string name="settings_lang_ru">Русский</string>
+
+    <string name="settings_theme_title">Theme</string>
+    <string name="settings_theme_system">System Default</string>
+    <string name="settings_theme_light">Light Theme</string>
+    <string name="settings_theme_dark">Dark Theme</string>
+
+    <string name="settings_version_label">Version</string>
+    <string name="btn_close">Close</string>
+
+    <!-- Service Notifications -->
+    <string name="notification_channel_name">qSync File Sharing Service</string>
+    <string name="notification_channel_desc">Keeps qSync file server active in background</string>
+    <string name="notification_title">qSync is Running</string>
+    <string name="notification_text">Local Wi-Fi file sharing is active</string>
 </resources>

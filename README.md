@@ -20,11 +20,12 @@ The project is structured as a monorepo containing:
    - Android 14+ compatible with `ForegroundService` support to keep the server alive in background.
    - Granular folder selection via Android Storage Access Framework (SAF).
    - Direct JNI bindings (`QSyncBridge`) calling into the Go engine.
+   - Multi-language support with on-the-fly switching (English and Russian).
 
 3. **`cli/` — Linux CLI & D-Bus Daemon (Go)**
    - Background D-Bus service (`org.qsync.Daemon`) for system and desktop integration.
    - Automatic mDNS discovery (`qsync scan`).
-   - Secure token storage in OS Keyring via `libsecret` / SecretService.
+   - Simple, portable token and device pairing storage in client configuration JSON (`~/.config/qsync/client_config.json`) for cross-platform compatibility.
    - Direct mounting via GVfs (`gio mount`).
 
 4. **`gnome-extension/` — GNOME Shell Extension (GNOME 45–48)**

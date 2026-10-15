@@ -1,6 +1,16 @@
+import java.util.Properties
+import java.io.FileInputStream
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+}
+
+val localProperties = Properties().apply {
+    val localFile = rootProject.file("local.properties")
+    if (localFile.exists()) {
+        FileInputStream(localFile).use { load(it) }
+    }
 }
 
 android {
@@ -19,9 +29,33 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    val storeFilePath = localProperties.getProperty("RELEASE_STORE_FILE")
+    val storePassword = localProperties.getProperty("RELEASE_STORE_PASSWORD")
+    val keyAlias = localProperties.getProperty("RELEASE_KEY_ALIAS")
+    val keyPassword = localProperties.getProperty("RELEASE_KEY_PASSWORD")
+
+    val hasReleaseSigning = !storeFilePath.isNullOrEmpty() &&
+            file(storeFilePath).exists() &&
+            !storePassword.isNullOrEmpty() &&
+            !keyAlias.isNullOrEmpty()
+
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(storeFilePath)
+                this.storePassword = storePassword
+                this.keyAlias = keyAlias
+                this.keyPassword = keyPassword ?: storePassword
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -49,8 +83,6 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx)
     // Material icons core (minimal base set of icons)
     implementation("androidx.compose.material:material-icons-core")
-    // OkHttp for local status polling if needed
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
     debugImplementation(libs.androidx.compose.ui.tooling)
 }

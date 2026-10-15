@@ -176,14 +176,25 @@ class QSyncService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    private fun getLocalizedContext(): Context {
+        val prefs = getSharedPreferences("qsync_prefs", Context.MODE_PRIVATE)
+        val lang = prefs.getString("app_language", "en") ?: "en"
+        val locale = java.util.Locale(lang)
+        val config = android.content.res.Configuration(resources.configuration).apply {
+            setLocale(locale)
+        }
+        return createConfigurationContext(config)
+    }
+
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val locCtx = getLocalizedContext()
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "qSync File Sharing Service",
+                locCtx.getString(R.string.notification_channel_name),
                 NotificationManager.IMPORTANCE_DEFAULT
             ).apply {
-                description = "Keeps qSync file server active in background"
+                description = locCtx.getString(R.string.notification_channel_desc)
                 setShowBadge(true)
             }
             val manager = getSystemService(NotificationManager::class.java)
@@ -206,9 +217,10 @@ class QSyncService : Service() {
             }
         )
 
+        val locCtx = getLocalizedContext()
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("qSync is Running")
-            .setContentText("Local Wi-Fi file sharing is active")
+            .setContentTitle(locCtx.getString(R.string.notification_title))
+            .setContentText(locCtx.getString(R.string.notification_text))
             .setSmallIcon(R.drawable.ic_folder)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
