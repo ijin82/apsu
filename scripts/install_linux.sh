@@ -45,10 +45,10 @@ install_qsync() {
     mkdir -p "${BIN_DIR}"
     if [ -f "${ROOT_DIR}/qsync" ]; then
         print_info "Installing pre-built CLI binary from package..."
-        cp "${ROOT_DIR}/qsync" "${BIN_DIR}/qsync"
+        install -m 755 "${ROOT_DIR}/qsync" "${BIN_DIR}/qsync"
     elif [ -f "${ROOT_DIR}/cli/qsync" ]; then
         print_info "Installing pre-built CLI binary from cli/qsync..."
-        cp "${ROOT_DIR}/cli/qsync" "${BIN_DIR}/qsync"
+        install -m 755 "${ROOT_DIR}/cli/qsync" "${BIN_DIR}/qsync"
     elif command -v go >/dev/null 2>&1 && [ -d "${ROOT_DIR}/cli" ]; then
         print_info "Building CLI binary from source (${ROOT_DIR}/cli)..."
         (cd "${ROOT_DIR}/cli" && go build -ldflags="-s -w" -o "${BIN_DIR}/qsync" ./cmd/qsync)
@@ -56,7 +56,6 @@ install_qsync() {
         print_error "qsync binary not found and cannot compile. Please ensure 'qsync' exists or Go is installed."
         exit 1
     fi
-    chmod +x "${BIN_DIR}/qsync"
     print_success "CLI binary installed to ${BIN_DIR}/qsync"
 
     # Ensure ~/.local/bin is in PATH notice

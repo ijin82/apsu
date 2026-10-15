@@ -357,7 +357,7 @@ func TestServerSecurityHardening(t *testing.T) {
 		t.Fatalf("expected 429 Too Many Requests after 20 failed attempts, got %d", respRateLimited.StatusCode)
 	}
 
-	// 7. WebDAV request from rate-limited IP MUST return 429 Too Many Requests
+	// 7. WebDAV request from rate-limited IP MUST return 429 Too Many Requests when unauthenticated
 	davReq, _ := http.NewRequest("GET", baseURL+"/Docs/hello.txt", nil)
 	davResp, err := client.Do(davReq)
 	if err != nil {
@@ -365,7 +365,19 @@ func TestServerSecurityHardening(t *testing.T) {
 	}
 	defer davResp.Body.Close()
 	if davResp.StatusCode != http.StatusTooManyRequests {
-		t.Fatalf("expected 429 for rate-limited IP on WebDAV, got %d", davResp.StatusCode)
+		t.Fatalf("expected 429 for rate-limited IP on unauthenticated WebDAV, got %d", davResp.StatusCode)
+	}
+
+	// 7b. Legitimate request with VALID token MUST still succeed even if IP has failed attempts
+	authDavReq, _ := http.NewRequest("GET", baseURL+"/Docs/hello.txt", nil)
+	authDavReq.Header.Set("Authorization", "Bearer "+token)
+	authDavResp, err := client.Do(authDavReq)
+	if err != nil {
+		t.Fatalf("authenticated WebDAV request failed: %v", err)
+	}
+	defer authDavResp.Body.Close()
+	if authDavResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for valid token from rate-limited IP, got %d", authDavResp.StatusCode)
 	}
 
 	// 8. Test Rate Limiting on /api/pair

@@ -6,8 +6,10 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/big"
+	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"qsync/core/internal/storage"
 )
@@ -116,15 +118,35 @@ func (p *PairingManager) ValidatePINAndPair(pin, deviceName string) (string, err
 	}
 	token := hex.EncodeToString(b)
 
-	if deviceName == "" {
-		deviceName = "Unknown PC"
-	}
+	// Sanitize and limit deviceName to prevent config bloat or UI corruption
+	deviceName = sanitizeDeviceName(deviceName)
 
 	if err := p.store.AddTrustedDevice(token, deviceName); err != nil {
 		return "", fmt.Errorf("failed to store trusted device: %w", err)
 	}
 
 	return token, nil
+}
+
+// sanitizeDeviceName strips control characters, normalizes whitespace, and truncates to 64 runes
+func sanitizeDeviceName(input string) string {
+	var builder strings.Builder
+	for _, r := range strings.TrimSpace(input) {
+		if unicode.IsControl(r) {
+			continue
+		}
+		builder.WriteRune(r)
+	}
+	cleaned := strings.TrimSpace(builder.String())
+	if cleaned == "" {
+		return "Unknown PC"
+	}
+	// Limit to max 64 runes
+	runes := []rune(cleaned)
+	if len(runes) > 64 {
+		cleaned = string(runes[:64])
+	}
+	return cleaned
 }
 
 // IsTokenValid checks whether the given token is recognized and updates its last_used timestamp

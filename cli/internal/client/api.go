@@ -114,15 +114,26 @@ func PairSecure(ip string, port int, pin string, deviceName string) (string, str
 
 // Ping checks if the server is accessible
 func Ping(ip string, port int) bool {
-	httpClient := &http.Client{Timeout: 2 * time.Second}
+	httpClient := &http.Client{Timeout: 3500 * time.Millisecond}
+	// 1. Try public /api/info first (does not require auth or trigger WebDAV rate limiting)
+	apiURL := fmt.Sprintf("http://%s:%d/api/info", ip, port)
+	resp, err := httpClient.Get(apiURL)
+	if err == nil {
+		resp.Body.Close()
+		return resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusTooManyRequests
+	}
+
+	// 2. Fallback to root /
 	url := fmt.Sprintf("http://%s:%d/", ip, port)
-	resp, err := httpClient.Get(url)
+	resp, err = httpClient.Get(url)
 	if err != nil {
 		return false
 	}
 	resp.Body.Close()
 	// Server returns 401 Unauthorized for unauthenticated requests, which means it is alive!
-	return resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusOK
+	// 429 Too Many Requests or 403 Forbidden also confirms the server is reachable and running.
+	return resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusOK ||
+		resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusForbidden
 }
 
 type RemoteFolder struct {
@@ -143,7 +154,7 @@ type ServerInfo struct {
 
 // FetchServerInfo queries /api/info to retrieve device name and shared folders list
 func FetchServerInfo(ip string, port int) (*ServerInfo, error) {
-	httpClient := &http.Client{Timeout: 1500 * time.Millisecond}
+	httpClient := &http.Client{Timeout: 3000 * time.Millisecond}
 	apiURL := fmt.Sprintf("http://%s:%d/api/info", ip, port)
 	resp, err := httpClient.Get(apiURL)
 	if err != nil {
@@ -187,7 +198,7 @@ func VerifyTokenSecure(ip string, port, tlsPort int, certFP, token string) bool 
 		port = 8484
 	}
 
-	httpClient, baseURL := getHTTPClientAndBaseURL(ip, port, tlsPort, certFP, 1200*time.Millisecond)
+	httpClient, baseURL := getHTTPClientAndBaseURL(ip, port, tlsPort, certFP, 3000*time.Millisecond)
 
 	// 1. Try /api/auth/verify
 	verifyURL := fmt.Sprintf("%s/api/auth/verify", baseURL)

@@ -351,38 +351,36 @@ func (s *Server) recordFailedAuth(ip string) {
 
 func (s *Server) authenticateRequest(r *http.Request) bool {
 	ip := getClientIP(r)
-	if s.isRateLimited(ip) {
+
+	var providedToken string
+	hasCreds := false
+
+	if _, pass, ok := r.BasicAuth(); ok && pass != "" {
+		hasCreds = true
+		providedToken = pass
+	} else {
+		authHeader := r.Header.Get("Authorization")
+		if strings.HasPrefix(authHeader, "Bearer ") {
+			hasCreds = true
+			providedToken = strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
+		}
+	}
+
+	if hasCreds {
+		if providedToken != "" && s.pairingMgr.IsTokenValid(providedToken) {
+			return true
+		}
+		// Invalid credentials explicitly supplied: record failed attempt towards rate limit
+		s.recordFailedAuth(ip)
 		return false
 	}
 
-	if _, pass, ok := r.BasicAuth(); ok && pass != "" {
-		if s.pairingMgr.IsTokenValid(pass) {
-			return true
-		}
-	}
-	authHeader := r.Header.Get("Authorization")
-	if strings.HasPrefix(authHeader, "Bearer ") {
-		token := strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
-		if token != "" && s.pairingMgr.IsTokenValid(token) {
-			return true
-		}
-	}
-
-	s.recordFailedAuth(ip)
+	// No credentials supplied (challenge probe or anonymous ping): do not count as failed auth
 	return false
 }
 
 func (s *Server) handleAuthVerify(w http.ResponseWriter, r *http.Request) {
 	ip := getClientIP(r)
-	if s.isRateLimited(ip) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusTooManyRequests)
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"valid": false,
-			"error": "too many failed authentication attempts; rate limited",
-		})
-		return
-	}
 
 	w.Header().Set("Content-Type", "application/json")
 	if s.authenticateRequest(r) {
@@ -390,6 +388,15 @@ func (s *Server) handleAuthVerify(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"valid":       true,
 			"server_name": s.store.GetConfig().ServerName,
+		})
+		return
+	}
+
+	if s.isRateLimited(ip) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"valid": false,
+			"error": "too many failed authentication attempts; rate limited",
 		})
 		return
 	}
@@ -413,13 +420,14 @@ func (s *Server) handleWebDAV(handler *webdav.Handler, w http.ResponseWriter, r 
 	}
 
 	ip := getClientIP(r)
-	if s.isRateLimited(ip) {
-		http.Error(w, "Too many failed authentication attempts; rate limited", http.StatusTooManyRequests)
-		return
-	}
 
 	if s.authenticateRequest(r) {
 		handler.ServeHTTP(w, r)
+		return
+	}
+
+	if s.isRateLimited(ip) {
+		http.Error(w, "Too many failed authentication attempts; rate limited", http.StatusTooManyRequests)
 		return
 	}
 

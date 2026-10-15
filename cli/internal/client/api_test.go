@@ -72,3 +72,42 @@ func TestVerifyTokenFallback(t *testing.T) {
 		t.Fatalf("expected VerifyToken fallback to return false for bad-token")
 	}
 }
+
+func TestPing(t *testing.T) {
+	// Test server responding on /api/info with 200 OK
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/info" {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"name":"MyPhone","folders":[]}`))
+			return
+		}
+		if r.URL.Path == "/" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	parts := strings.Split(strings.TrimPrefix(server.URL, "http://"), ":")
+	ip := parts[0]
+	port, _ := strconv.Atoi(parts[1])
+
+	if !Ping(ip, port) {
+		t.Fatalf("expected Ping to succeed for live server")
+	}
+
+	// Test server responding with 429
+	server429 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer server429.Close()
+
+	parts429 := strings.Split(strings.TrimPrefix(server429.URL, "http://"), ":")
+	ip429 := parts429[0]
+	port429, _ := strconv.Atoi(parts429[1])
+
+	if !Ping(ip429, port429) {
+		t.Fatalf("expected Ping to return true even when rate limited with 429")
+	}
+}

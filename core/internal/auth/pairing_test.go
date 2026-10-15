@@ -158,3 +158,47 @@ func TestTokenHashingAndStorage(t *testing.T) {
 		t.Fatalf("revoked token should no longer be valid")
 	}
 }
+
+func TestDeviceNameSanitization(t *testing.T) {
+	store := setupTestStore(t)
+	mgr := NewPairingManager(store)
+
+	// 1. Control chars & whitespace
+	pin, _ := mgr.GeneratePIN()
+	dirtyName := "  My\x00Desktop\tPC\r\n  "
+	token, err := mgr.ValidatePINAndPair(pin, dirtyName)
+	if err != nil {
+		t.Fatalf("pairing failed: %v", err)
+	}
+	h := storage.HashToken(token)
+	dev := store.GetConfig().TrustedDevices[h]
+	if dev.DeviceName != "MyDesktopPC" {
+		t.Fatalf("expected 'MyDesktopPC', got %q", dev.DeviceName)
+	}
+
+	// 2. Empty or only spaces/controls
+	pin, _ = mgr.GeneratePIN()
+	emptyName := "   \x00\r\n   "
+	token, err = mgr.ValidatePINAndPair(pin, emptyName)
+	if err != nil {
+		t.Fatalf("pairing failed: %v", err)
+	}
+	h = storage.HashToken(token)
+	dev = store.GetConfig().TrustedDevices[h]
+	if dev.DeviceName != "Unknown PC" {
+		t.Fatalf("expected 'Unknown PC', got %q", dev.DeviceName)
+	}
+
+	// 3. Truncation to 64 runes
+	pin, _ = mgr.GeneratePIN()
+	longName := strings.Repeat("A", 100)
+	token, err = mgr.ValidatePINAndPair(pin, longName)
+	if err != nil {
+		t.Fatalf("pairing failed: %v", err)
+	}
+	h = storage.HashToken(token)
+	dev = store.GetConfig().TrustedDevices[h]
+	if len([]rune(dev.DeviceName)) != 64 {
+		t.Fatalf("expected 64 runes, got %d", len([]rune(dev.DeviceName)))
+	}
+}

@@ -491,10 +491,10 @@ class QSyncQuickToggle extends QuickSettings.QuickMenuToggle {
             return;
         }
 
-        // Show Pair action whenever phone is found and not mounted
-        this._pairAction.visible = phoneFound && !isMounted;
+        // Show Pair action only when pairing is actually required
+        this._pairAction.visible = phoneFound && !isMounted && !isPaired;
         if (this._pairAction.label) {
-            this._pairAction.label.text = isPaired ? '🔄 Re-pair Phone...' : '🤝 Pair Phone...';
+            this._pairAction.label.text = '🤝 Pair Phone...';
         }
 
         if (isMounted) {

@@ -45,6 +45,7 @@ type DaemonService struct {
 	devices         map[string]DeviceStatus // key: IP
 	syncingDevices  map[string]bool         // key: deviceName
 	manualUnmounted map[string]bool         // key: IP, remembers manual unmount for the active session
+	offlineFailures map[string]int          // key: IP, consecutive offline / ping failures before force-unmount
 	stopChan        chan struct{}
 }
 
@@ -59,6 +60,7 @@ func NewDaemonService(conn *godbus.Conn) *DaemonService {
 		devices:         make(map[string]DeviceStatus),
 		syncingDevices:  make(map[string]bool),
 		manualUnmounted: make(map[string]bool),
+		offlineFailures: make(map[string]int),
 		stopChan:        make(chan struct{}),
 	}
 }
@@ -198,16 +200,19 @@ func (d *DaemonService) MountDevice(name string, ip string, port int) (bool, str
 	}
 
 	if !client.VerifyToken(targetIP, targetPort, token) {
-		if dev, ok := d.devices[targetIP]; ok {
-			dev.IsPaired = false
-			d.devices[targetIP] = dev
+		if client.Ping(targetIP, targetPort) {
+			if dev, ok := d.devices[targetIP]; ok {
+				dev.IsPaired = false
+				d.devices[targetIP] = dev
+			}
+			d.emitStatusChanged()
+			return false, "Device rejected token (app reinstalled or un-paired). Please pair again.", nil
 		}
-		d.emitStatusChanged()
-		return false, "Device rejected token (app reinstalled or un-paired). Please pair again.", nil
+		return false, "Device is temporarily unreachable over Wi-Fi. Please check phone connection.", nil
 	}
 
 	if err := d.mounter.Mount(targetIP, targetPort, token); err != nil {
-		if !client.VerifyToken(targetIP, targetPort, token) {
+		if client.Ping(targetIP, targetPort) && !client.VerifyToken(targetIP, targetPort, token) {
 			if dev, ok := d.devices[targetIP]; ok {
 				dev.IsPaired = false
 				d.devices[targetIP] = dev
@@ -586,8 +591,8 @@ func (d *DaemonService) checkStatus() {
 		if isMounted {
 			isPaired = true
 		} else if token != "" {
+			isPaired = true
 			if client.VerifyToken(disc.IP, disc.Port, token) {
-				isPaired = true
 				// Requirement 2: Token matched! Sync device name in config if changed
 				_ = keyring.UpdatePairedDevice(name, disc.IP, disc.Port, token)
 			}
@@ -644,18 +649,14 @@ func (d *DaemonService) checkStatus() {
 				token, _ = keyring.GetToken(deviceKey)
 			}
 
-			isPaired := false
+			isPaired := token != ""
 			if isMounted {
 				isPaired = true
-			} else if online {
-				if token != "" && client.VerifyToken(p.IP, p.Port, token) {
-					isPaired = true
+			} else if online && token != "" {
+				if client.VerifyToken(p.IP, p.Port, token) {
 					// Requirement 2: Token matched! Sync device name in config if changed
 					_ = keyring.UpdatePairedDevice(name, p.IP, p.Port, token)
 				}
-			} else {
-				// Offline device retains pairing flag from config
-				isPaired = token != ""
 			}
 
 			var hasSyncFolders bool
@@ -696,6 +697,8 @@ func (d *DaemonService) checkStatus() {
 	d.mu.Lock()
 	for ip, dev := range newDevices {
 		if dev.IsOnline {
+			d.offlineFailures[ip] = 0
+
 			// If device was mounted and is still mounted, clear manualUnmounted
 			if dev.IsMounted {
 				delete(d.manualUnmounted, ip)
@@ -719,11 +722,18 @@ func (d *DaemonService) checkStatus() {
 			delete(d.manualUnmounted, ip)
 
 			if dev.IsMounted {
-				// Double check with ping before unmounting
-				if !client.Ping(dev.IP, dev.Port) {
-					_ = d.mounter.Unmount(dev.IP, dev.Port)
-					dev.IsMounted = false
-					newDevices[ip] = dev
+				// Require 3 consecutive ping failures (~10 seconds) before force-unmounting
+				// to avoid dropping mount during heavy file transfer or brief Wi-Fi latency spikes
+				d.offlineFailures[ip]++
+				if d.offlineFailures[ip] >= 3 {
+					if !client.Ping(dev.IP, dev.Port) {
+						_ = d.mounter.Unmount(dev.IP, dev.Port)
+						dev.IsMounted = false
+						newDevices[ip] = dev
+						d.offlineFailures[ip] = 0
+					} else {
+						d.offlineFailures[ip] = 0
+					}
 				}
 			}
 		}
