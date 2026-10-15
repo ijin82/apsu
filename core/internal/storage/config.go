@@ -1,6 +1,8 @@
 package storage
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -8,6 +10,12 @@ import (
 	"sync"
 	"time"
 )
+
+// HashToken returns the hex-encoded SHA-256 hash of a bearer token.
+func HashToken(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
+}
 
 type SharedFolder struct {
 	ID     string `json:"id"`
@@ -17,7 +25,8 @@ type SharedFolder struct {
 }
 
 type TrustedDevice struct {
-	Token      string    `json:"token"`
+	TokenHash  string    `json:"token_hash,omitempty"`
+	Token      string    `json:"token,omitempty"` // legacy compatibility
 	DeviceName string    `json:"device_name"`
 	CreatedAt  time.Time `json:"created_at"`
 	LastUsed   time.Time `json:"last_used"`
@@ -27,7 +36,7 @@ type Config struct {
 	ServerName     string                   `json:"server_name"`
 	Port           int                      `json:"port"`
 	Folders        []SharedFolder           `json:"folders"`
-	TrustedDevices map[string]TrustedDevice `json:"trusted_devices"` // key: token
+	TrustedDevices map[string]TrustedDevice `json:"trusted_devices"` // key: tokenHash
 }
 
 type Manager struct {
@@ -52,7 +61,6 @@ func NewManager(configDir string) (*Manager, error) {
 			TrustedDevices: make(map[string]TrustedDevice),
 		},
 	}
-
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
 
@@ -66,6 +74,10 @@ func NewManager(configDir string) (*Manager, error) {
 	}
 
 	return mgr, nil
+}
+
+func (m *Manager) ConfigDir() string {
+	return filepath.Dir(m.configPath)
 }
 
 func (m *Manager) loadLocked() error {
@@ -86,6 +98,30 @@ func (m *Manager) loadLocked() error {
 
 	if cfg.TrustedDevices == nil {
 		cfg.TrustedDevices = make(map[string]TrustedDevice)
+	} else {
+		// Migrate any plaintext tokens to SHA-256 hashes
+		migrated := make(map[string]TrustedDevice)
+		needSave := false
+		for k, v := range cfg.TrustedDevices {
+			if v.TokenHash == "" {
+				raw := k
+				if v.Token != "" {
+					raw = v.Token
+				}
+				h := HashToken(raw)
+				v.TokenHash = h
+				v.Token = "" // remove plaintext token from memory and disk
+				migrated[h] = v
+				needSave = true
+			} else {
+				migrated[k] = v
+			}
+		}
+		cfg.TrustedDevices = migrated
+		if needSave {
+			m.config = cfg
+			_ = m.saveLocked()
+		}
 	}
 	if cfg.Folders == nil {
 		cfg.Folders = make([]SharedFolder, 0)
@@ -193,8 +229,9 @@ func (m *Manager) AddTrustedDevice(token, deviceName string) error {
 	defer m.mu.Unlock()
 
 	now := time.Now()
-	m.config.TrustedDevices[token] = TrustedDevice{
-		Token:      token,
+	h := HashToken(token)
+	m.config.TrustedDevices[h] = TrustedDevice{
+		TokenHash:  h,
 		DeviceName: deviceName,
 		CreatedAt:  now,
 		LastUsed:   now,
@@ -202,22 +239,32 @@ func (m *Manager) AddTrustedDevice(token, deviceName string) error {
 	return m.saveLocked()
 }
 
-func (m *Manager) UpdateDeviceLastUsed(token string) {
+func (m *Manager) UpdateDeviceLastUsed(tokenOrHash string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if dev, ok := m.config.TrustedDevices[token]; ok {
+	key := tokenOrHash
+	if dev, ok := m.config.TrustedDevices[key]; ok {
 		dev.LastUsed = time.Now()
-		m.config.TrustedDevices[token] = dev
+		m.config.TrustedDevices[key] = dev
+		_ = m.saveLocked()
+		return
+	}
+
+	h := HashToken(tokenOrHash)
+	if dev, ok := m.config.TrustedDevices[h]; ok {
+		dev.LastUsed = time.Now()
+		m.config.TrustedDevices[h] = dev
 		_ = m.saveLocked()
 	}
 }
 
-func (m *Manager) RevokeDevice(token string) error {
+func (m *Manager) RevokeDevice(tokenOrHash string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	delete(m.config.TrustedDevices, token)
+	delete(m.config.TrustedDevices, tokenOrHash)
+	delete(m.config.TrustedDevices, HashToken(tokenOrHash))
 	return m.saveLocked()
 }
 

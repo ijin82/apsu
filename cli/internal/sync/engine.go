@@ -137,7 +137,7 @@ func (e *SyncEngine) SyncDevice(deviceName, ip string, port int, token string) (
 			continue
 		}
 
-		stats, folderErr := e.syncSingleFolder(deviceName, ip, port, token, rf.Name, cleanLocal)
+		stats, folderErr := e.syncSingleFolder(deviceName, ip, port, info.TLSPort, info.CertFingerprint, token, rf.Name, cleanLocal)
 		totalStats.CreatedCount += stats.CreatedCount
 		totalStats.UpdatedCount += stats.UpdatedCount
 		totalStats.DeletedCount += stats.DeletedCount
@@ -173,7 +173,7 @@ func (e *SyncEngine) SyncDevice(deviceName, ip string, port int, token string) (
 	return totalStats, summaryMsg, nil
 }
 
-func (e *SyncEngine) syncSingleFolder(deviceName, ip string, port int, token string, remoteFolder, localRoot string) (SyncStats, error) {
+func (e *SyncEngine) syncSingleFolder(deviceName, ip string, port, tlsPort int, certFP, token string, remoteFolder, localRoot string) (SyncStats, error) {
 	var stats SyncStats
 
 	if e.logger != nil {
@@ -198,6 +198,26 @@ func (e *SyncEngine) syncSingleFolder(deviceName, ip string, port int, token str
 		if d.IsDir() {
 			localDirs[rel] = true
 		} else {
+			// Symlink escape protection: ensure symlink targets stay within localRoot
+			if d.Type()&os.ModeSymlink != 0 {
+				resolved, err := filepath.EvalSymlinks(p)
+				if err != nil {
+					if e.logger != nil {
+						e.logger.LogInfo(remoteFolder, fmt.Sprintf("SKIPPED: Broken symlink '%s'", rel))
+					}
+					return nil
+				}
+				cleanResolved := filepath.Clean(resolved)
+				cleanRoot := filepath.Clean(localRoot)
+				relToRoot, err := filepath.Rel(cleanRoot, cleanResolved)
+				if err != nil || strings.HasPrefix(relToRoot, "..") || filepath.IsAbs(relToRoot) {
+					if e.logger != nil {
+						e.logger.LogInfo(remoteFolder, fmt.Sprintf("SKIPPED: Symlink '%s' points outside source folder (%s)", rel, cleanResolved))
+					}
+					return nil
+				}
+			}
+
 			info, err := d.Info()
 			if err == nil {
 				localFiles[rel] = info
@@ -213,7 +233,7 @@ func (e *SyncEngine) syncSingleFolder(deviceName, ip string, port int, token str
 	}
 
 	// 2. Fetch remote tree
-	remoteItems, err := client.ListRemoteTree(ip, port, token, remoteFolder)
+	remoteItems, err := client.ListRemoteTreeSecure(ip, port, tlsPort, certFP, token, remoteFolder)
 	if err != nil {
 		if e.logger != nil {
 			e.logger.LogInfo(remoteFolder, fmt.Sprintf("Error fetching remote folder '%s': %v", remoteFolder, err))
@@ -242,7 +262,7 @@ func (e *SyncEngine) syncSingleFolder(deviceName, ip string, port int, token str
 	for _, d := range sortedDirs {
 		if !remoteDirs[d] {
 			remoteDirPath := remoteFolder + "/" + d
-			if err := client.MkcolRemote(ip, port, token, remoteDirPath); err != nil {
+			if err := client.MkcolRemoteSecure(ip, port, tlsPort, certFP, token, remoteDirPath); err != nil {
 				stats.ErrorCount++
 				if e.logger != nil {
 					e.logger.Log(remoteFolder, "MKCOL ERROR", d, err.Error())
@@ -274,7 +294,7 @@ func (e *SyncEngine) syncSingleFolder(deviceName, ip string, port int, token str
 			localFilePath := filepath.Join(localRoot, filepath.FromSlash(rel))
 			remoteFilePath := remoteFolder + "/" + rel
 
-			if err := client.UploadFile(ip, port, token, remoteFilePath, localFilePath); err != nil {
+			if err := client.UploadFileSecure(ip, port, tlsPort, certFP, token, remoteFilePath, localFilePath); err != nil {
 				stats.ErrorCount++
 				if e.logger != nil {
 					e.logger.Log(remoteFolder, opType+" ERROR", rel, err.Error())
@@ -332,7 +352,7 @@ func (e *SyncEngine) syncSingleFolder(deviceName, ip string, port int, token str
 	for rel := range remoteFiles {
 		if _, exists := localFiles[rel]; !exists {
 			remoteFilePath := remoteFolder + "/" + rel
-			if err := client.DeleteRemote(ip, port, token, remoteFilePath); err != nil {
+			if err := client.DeleteRemoteSecure(ip, port, tlsPort, certFP, token, remoteFilePath); err != nil {
 				stats.ErrorCount++
 				if e.logger != nil {
 					e.logger.Log(remoteFolder, "DELETE FILE ERROR", rel, err.Error())
@@ -357,7 +377,7 @@ func (e *SyncEngine) syncSingleFolder(deviceName, ip string, port int, token str
 	for _, d := range sortedRemoteDirs {
 		if !localDirs[d] {
 			remoteDirPath := remoteFolder + "/" + d
-			if err := client.DeleteRemote(ip, port, token, remoteDirPath); err != nil {
+			if err := client.DeleteRemoteSecure(ip, port, tlsPort, certFP, token, remoteDirPath); err != nil {
 				stats.ErrorCount++
 				if e.logger != nil {
 					e.logger.Log(remoteFolder, "DELETE DIR ERROR", d, err.Error())

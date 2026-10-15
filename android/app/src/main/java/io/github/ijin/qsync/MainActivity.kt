@@ -361,7 +361,7 @@ fun QSyncMainScreen(
                         val key = keys.next()
                         val dev = devsObj.optJSONObject(key)
                         if (dev != null) {
-                            val token = dev.optString("token", key)
+                            val token = dev.optString("token_hash", dev.optString("token", key))
                             val dName = dev.optString("device_name", "Unknown PC")
                             val createdAt = dev.optString("created_at", "")
                             val lastUsed = dev.optString("last_used", "")

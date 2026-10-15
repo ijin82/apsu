@@ -120,3 +120,41 @@ func TestPairingManager_ExpiredOrEmptyPIN(t *testing.T) {
 		t.Fatalf("expected no active pairing session after ClearPIN, got: %v", err)
 	}
 }
+
+func TestTokenHashingAndStorage(t *testing.T) {
+	store := setupTestStore(t)
+	mgr := NewPairingManager(store)
+
+	pin, _ := mgr.GeneratePIN()
+	token, err := mgr.ValidatePINAndPair(pin, "Secure-Laptop")
+	if err != nil {
+		t.Fatalf("pairing failed: %v", err)
+	}
+
+	cfg := store.GetConfig()
+	// Raw token MUST NOT exist as a key in cfg.TrustedDevices
+	if _, exists := cfg.TrustedDevices[token]; exists {
+		t.Fatalf("security violation: raw token stored in config!")
+	}
+
+	// Token hash MUST exist
+	expectedHash := storage.HashToken(token)
+	dev, exists := cfg.TrustedDevices[expectedHash]
+	if !exists {
+		t.Fatalf("expected token hash %s to exist in config", expectedHash)
+	}
+	if dev.Token != "" {
+		t.Fatalf("security violation: dev.Token contains plaintext token!")
+	}
+	if dev.TokenHash != expectedHash {
+		t.Fatalf("expected TokenHash %s, got %s", expectedHash, dev.TokenHash)
+	}
+
+	// Revoke by raw token (which gets hashed) or by hash
+	if err := store.RevokeDevice(token); err != nil {
+		t.Fatalf("RevokeDevice failed: %v", err)
+	}
+	if mgr.IsTokenValid(token) {
+		t.Fatalf("revoked token should no longer be valid")
+	}
+}

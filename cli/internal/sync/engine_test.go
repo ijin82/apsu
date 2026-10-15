@@ -335,3 +335,79 @@ func TestSyncEngine_SafetyChecks(t *testing.T) {
 		t.Fatalf("expected remote files to be cleared with AllowMassDeletion, got %d", len(remoteFiles))
 	}
 }
+
+func TestSyncEngine_SymlinkEscapeProtection(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tempDir)
+
+	outsideDir := filepath.Join(tempDir, "Outside")
+	_ = os.MkdirAll(outsideDir, 0755)
+	secretFile := filepath.Join(outsideDir, "secret.key")
+	_ = os.WriteFile(secretFile, []byte("SUPER_SECRET_KEY"), 0600)
+
+	syncDir := filepath.Join(tempDir, "SyncFolder")
+	_ = os.MkdirAll(syncDir, 0755)
+	normalFile := filepath.Join(syncDir, "normal.txt")
+	_ = os.WriteFile(normalFile, []byte("Normal content"), 0644)
+
+	// Create symlink escaping syncDir
+	escapingSymlink := filepath.Join(syncDir, "stolen_secret.key")
+	_ = os.Symlink(secretFile, escapingSymlink)
+
+	// Create symlink staying inside syncDir
+	validSymlink := filepath.Join(syncDir, "valid_link.txt")
+	_ = os.Symlink(normalFile, validSymlink)
+
+	uploadedFiles := make(map[string]string)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case "GET":
+			if r.URL.Path == "/api/info" {
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{
+					"name": "SymlinkPhone",
+					"folders": [
+						{"id": "1", "name": "Docs", "path": "/storage/Docs", "is_sync": true}
+					]
+				}`))
+				return
+			}
+			w.WriteHeader(http.StatusNotFound)
+		case "PROPFIND":
+			w.Header().Set("Content-Type", "application/xml")
+			w.WriteHeader(http.StatusMultiStatus)
+			_, _ = w.Write([]byte(`<multistatus xmlns="DAV:"></multistatus>`))
+		case "PUT":
+			body, _ := io.ReadAll(r.Body)
+			uploadedFiles[strings.TrimPrefix(r.URL.Path, "/")] = string(body)
+			w.WriteHeader(http.StatusCreated)
+		}
+	}))
+	defer server.Close()
+
+	parts := strings.Split(strings.TrimPrefix(server.URL, "http://"), ":")
+	ip := parts[0]
+	port, _ := strconv.Atoi(parts[1])
+
+	_ = keyring.SetSyncMapping("SymlinkPhone", "Docs", syncDir)
+	engine := NewSyncEngine(nil)
+
+	stats, _, err := engine.SyncDevice("SymlinkPhone", ip, port, "token-123")
+	if err != nil {
+		t.Fatalf("SyncDevice failed: %v", err)
+	}
+
+	// Normal file and valid internal symlink should be uploaded
+	if _, ok := uploadedFiles["Docs/normal.txt"]; !ok {
+		t.Errorf("normal.txt should have been uploaded")
+	}
+	if _, ok := uploadedFiles["Docs/valid_link.txt"]; !ok {
+		t.Errorf("valid_link.txt should have been uploaded")
+	}
+
+	// Escaping symlink MUST NOT be uploaded!
+	if _, ok := uploadedFiles["Docs/stolen_secret.key"]; ok {
+		t.Fatalf("SECURITY VIOLATION: escaping symlink was uploaded to remote!")
+	}
+	_ = stats
+}

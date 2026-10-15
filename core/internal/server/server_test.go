@@ -103,6 +103,9 @@ func TestServerPairingAndWebDAV(t *testing.T) {
 	if !pairData.Success || pairData.Token == "" {
 		t.Fatalf("pairing failed or token empty: %+v", pairData)
 	}
+	if pairData.TLSPort <= 0 || pairData.CertFingerprint == "" {
+		t.Fatalf("expected valid TLSPort and CertFingerprint in pair response, got port=%d fp=%s", pairData.TLSPort, pairData.CertFingerprint)
+	}
 
 	// 3. Access file using Basic Auth with Token
 	client := &http.Client{}
@@ -257,6 +260,29 @@ func TestServerSecurityHardening(t *testing.T) {
 	defer authFoldersResp.Body.Close()
 	if authFoldersResp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200 OK for authenticated /api/folders, got %d", authFoldersResp.StatusCode)
+	}
+
+	// Remote folder modification (POST / DELETE) MUST be blocked with 405 Method Not Allowed
+	authPostReq, _ := http.NewRequest("POST", baseURL+"/api/folders", bytes.NewReader([]byte(`{"name":"Evil","path":"/storage/emulated/0"}`)))
+	authPostReq.Header.Set("Authorization", "Bearer "+token)
+	authPostResp, err := client.Do(authPostReq)
+	if err != nil {
+		t.Fatalf("auth POST /api/folders failed: %v", err)
+	}
+	authPostResp.Body.Close()
+	if authPostResp.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405 Method Not Allowed for POST /api/folders, got %d", authPostResp.StatusCode)
+	}
+
+	authDeleteReq, _ := http.NewRequest("DELETE", baseURL+"/api/folders?id=123", nil)
+	authDeleteReq.Header.Set("Authorization", "Bearer "+token)
+	authDeleteResp, err := client.Do(authDeleteReq)
+	if err != nil {
+		t.Fatalf("auth DELETE /api/folders failed: %v", err)
+	}
+	authDeleteResp.Body.Close()
+	if authDeleteResp.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405 Method Not Allowed for DELETE /api/folders, got %d", authDeleteResp.StatusCode)
 	}
 
 	// 4. /api/info MUST NOT leak filesystem paths

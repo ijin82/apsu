@@ -18,6 +18,10 @@ func NewBroadcaster() *Broadcaster {
 }
 
 func (b *Broadcaster) Start(serviceName string, port int) error {
+	return b.StartSecure(serviceName, port, 0, "")
+}
+
+func (b *Broadcaster) StartSecure(serviceName string, port int, tlsPort int, certFP string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -30,6 +34,12 @@ func (b *Broadcaster) Start(serviceName string, port int) error {
 		"txtvers=1",
 		"name=" + serviceName,
 		"port=" + strconv.Itoa(port),
+	}
+	if tlsPort > 0 {
+		txtRecords = append(txtRecords, "tls_port="+strconv.Itoa(tlsPort))
+	}
+	if certFP != "" {
+		txtRecords = append(txtRecords, "cert_fp="+certFP)
 	}
 
 	server, err := zeroconf.Register(

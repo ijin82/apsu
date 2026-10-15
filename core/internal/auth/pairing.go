@@ -133,9 +133,19 @@ func (p *PairingManager) IsTokenValid(token string) bool {
 		return false
 	}
 	cfg := p.store.GetConfig()
+	h := storage.HashToken(token)
+
+	// Check hashed token (primary)
+	if _, exists := cfg.TrustedDevices[h]; exists {
+		go p.store.UpdateDeviceLastUsed(h)
+		return true
+	}
+
+	// Legacy fallback: direct plaintext token
 	if _, exists := cfg.TrustedDevices[token]; exists {
 		go p.store.UpdateDeviceLastUsed(token)
 		return true
 	}
+
 	return false
 }

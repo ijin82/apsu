@@ -21,8 +21,12 @@ func TestUpdatePairedDevice(t *testing.T) {
 	if len(cfg.PairedDevices) != 1 {
 		t.Fatalf("expected 1 paired device, got %d", len(cfg.PairedDevices))
 	}
-	if dev, ok := cfg.PairedDevices["Phone A"]; !ok || dev.Token != "token-123" {
+	if dev, ok := cfg.PairedDevices["Phone A"]; !ok {
 		t.Fatalf("unexpected device info: %+v", dev)
+	}
+	tokA, err := GetToken("Phone A")
+	if err != nil || tokA != "token-123" {
+		t.Fatalf("expected token-123 for Phone A, got %s (err: %v)", tokA, err)
 	}
 	if cfg.LastServerName != "Phone A" {
 		t.Fatalf("expected LastServerName 'Phone A', got %s", cfg.LastServerName)
@@ -44,17 +48,18 @@ func TestUpdatePairedDevice(t *testing.T) {
 	if _, ok := cfg.PairedDevices["Phone A"]; ok {
 		t.Fatalf("old device name 'Phone A' still present in PairedDevices")
 	}
-	if dev, ok := cfg.PairedDevices["Phone B"]; !ok || dev.Token != "token-123" {
+	if dev, ok := cfg.PairedDevices["Phone B"]; !ok {
 		t.Fatalf("unexpected renamed device info: %+v", dev)
+	}
+	tokB, err := GetToken("Phone B")
+	if err != nil || tokB != "token-123" {
+		t.Fatalf("expected token-123 for Phone B, got %s (err: %v)", tokB, err)
 	}
 	if cfg.LastServerName != "Phone B" {
 		t.Fatalf("expected LastServerName updated to 'Phone B', got %s", cfg.LastServerName)
 	}
 	if _, ok := cfg.Tokens[NormalizeServerKey("Phone A")]; ok {
 		t.Fatalf("old token key for Phone A still present")
-	}
-	if token, ok := cfg.Tokens[NormalizeServerKey("Phone B")]; !ok || token != "token-123" {
-		t.Fatalf("expected token under Phone B key, got %s", token)
 	}
 }
 

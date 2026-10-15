@@ -99,30 +99,13 @@ var pairCmd = &cobra.Command{
 		}
 
 		fmt.Println("🤝 Pairing...")
-		token, serverName, err := client.Pair(targetIP, targetPort, pin, "")
+		token, serverName, tlsPort, certFP, err := client.PairSecure(targetIP, targetPort, pin, "")
 		if err != nil {
 			fmt.Printf("❌ Pairing failed: %v\n", err)
 			return
 		}
 
-		_ = keyring.SaveToken("", token)
-		deviceKey := keyring.NormalizeServerKey(serverName)
-		_ = keyring.SaveToken(deviceKey, token)
-
-		cfg, _ := keyring.LoadConfig()
-		cfg.LastServerName = serverName
-		cfg.LastServerIP = targetIP
-		cfg.LastServerPort = targetPort
-		if cfg.PairedDevices == nil {
-			cfg.PairedDevices = make(map[string]keyring.DeviceInfo)
-		}
-		cfg.PairedDevices[serverName] = keyring.DeviceInfo{
-			Name:  serverName,
-			IP:    targetIP,
-			Port:  targetPort,
-			Token: token,
-		}
-		_ = keyring.SaveConfig(cfg)
+		_ = keyring.UpdatePairedDeviceSecure(serverName, targetIP, targetPort, tlsPort, certFP, token)
 
 		fmt.Printf("🎉 Successfully paired with '%s'!\n", serverName)
 		fmt.Println("Token saved in configuration.")

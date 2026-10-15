@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -16,13 +17,17 @@ import (
 )
 
 type Server struct {
-	mu         sync.RWMutex
-	store      *storage.Manager
-	pairingMgr *auth.PairingManager
-	httpServer *http.Server
-	listener   net.Listener
-	running    bool
-	boundPort  int
+	mu              sync.RWMutex
+	store           *storage.Manager
+	pairingMgr      *auth.PairingManager
+	httpServer      *http.Server
+	tlsServer       *http.Server
+	listener        net.Listener
+	tlsListener     net.Listener
+	running         bool
+	boundPort       int
+	boundTLSPort    int
+	certFingerprint string
 }
 
 type PairRequest struct {
@@ -31,10 +36,12 @@ type PairRequest struct {
 }
 
 type PairResponse struct {
-	Success    bool   `json:"success"`
-	Token      string `json:"token,omitempty"`
-	ServerName string `json:"server_name,omitempty"`
-	Error      string `json:"error,omitempty"`
+	Success         bool   `json:"success"`
+	Token           string `json:"token,omitempty"`
+	ServerName      string `json:"server_name,omitempty"`
+	TLSPort         int    `json:"tls_port,omitempty"`
+	CertFingerprint string `json:"cert_fingerprint,omitempty"`
+	Error           string `json:"error,omitempty"`
 }
 
 func NewServer(store *storage.Manager, pairingMgr *auth.PairingManager) *Server {
@@ -61,6 +68,24 @@ func (s *Server) Start() error {
 
 	s.listener = ln
 	s.boundPort = ln.Addr().(*net.TCPAddr).Port
+
+	// Ensure self-signed TLS certificate and private key exist for secure transfer
+	configDir := s.store.ConfigDir()
+	certPath := filepath.Join(configDir, "server.crt")
+	keyPath := filepath.Join(configDir, "server.key")
+	fp, err := EnsureTLSCertificate(certPath, keyPath, []string{cfg.ServerName}, GetLocalIPs())
+	if err == nil {
+		s.certFingerprint = fp
+		tlsAddr := fmt.Sprintf("0.0.0.0:%d", s.boundPort+1)
+		tlsLn, tlsErr := net.Listen("tcp", tlsAddr)
+		if tlsErr != nil {
+			tlsLn, tlsErr = net.Listen("tcp", "0.0.0.0:0")
+		}
+		if tlsErr == nil {
+			s.tlsListener = tlsLn
+			s.boundTLSPort = tlsLn.Addr().(*net.TCPAddr).Port
+		}
+	}
 
 	vfs := NewVirtualFS(s.store)
 	davHandler := &webdav.Handler{
@@ -106,6 +131,20 @@ func (s *Server) Start() error {
 		}
 	}()
 
+	if s.tlsListener != nil {
+		s.tlsServer = &http.Server{
+			Handler:           mux,
+			ReadTimeout:       1 * time.Hour,
+			WriteTimeout:      1 * time.Hour,
+			ReadHeaderTimeout: 10 * time.Second,
+			IdleTimeout:       120 * time.Second,
+			MaxHeaderBytes:    1 << 20,
+		}
+		go func() {
+			_ = s.tlsServer.ServeTLS(s.tlsListener, certPath, keyPath)
+		}()
+	}
+
 	return nil
 }
 
@@ -120,7 +159,20 @@ func (s *Server) Stop() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
+	var firstErr error
+	if s.tlsServer != nil {
+		if err := s.tlsServer.Shutdown(ctx); err != nil {
+			firstErr = err
+		}
+		s.tlsServer = nil
+		s.tlsListener = nil
+		s.boundTLSPort = 0
+	}
+
 	err := s.httpServer.Shutdown(ctx)
+	if firstErr != nil && err == nil {
+		err = firstErr
+	}
 	s.running = false
 	s.httpServer = nil
 	s.listener = nil
@@ -137,6 +189,18 @@ func (s *Server) Port() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.boundPort
+}
+
+func (s *Server) TLSPort() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.boundTLSPort
+}
+
+func (s *Server) CertFingerprint() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.certFingerprint
 }
 
 func (s *Server) handlePair(w http.ResponseWriter, r *http.Request) {
@@ -164,9 +228,11 @@ func (s *Server) handlePair(w http.ResponseWriter, r *http.Request) {
 
 	cfg := s.store.GetConfig()
 	_ = json.NewEncoder(w).Encode(PairResponse{
-		Success:    true,
-		Token:      token,
-		ServerName: cfg.ServerName,
+		Success:         true,
+		Token:           token,
+		ServerName:      cfg.ServerName,
+		TLSPort:         s.boundTLSPort,
+		CertFingerprint: s.certFingerprint,
 	})
 }
 
@@ -232,10 +298,12 @@ type PublicFolderInfo struct {
 }
 
 type InfoResponse struct {
-	Name    string             `json:"name"`
-	Version string             `json:"version"`
-	Port    int                `json:"port"`
-	Folders []PublicFolderInfo `json:"folders"`
+	Name            string             `json:"name"`
+	Version         string             `json:"version"`
+	Port            int                `json:"port"`
+	TLSPort         int                `json:"tls_port,omitempty"`
+	CertFingerprint string             `json:"cert_fingerprint,omitempty"`
+	Folders         []PublicFolderInfo `json:"folders"`
 }
 
 func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) {
@@ -250,10 +318,12 @@ func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	_ = json.NewEncoder(w).Encode(InfoResponse{
-		Name:    cfg.ServerName,
-		Version: "1.0",
-		Port:    s.boundPort,
-		Folders: pubFolders,
+		Name:            cfg.ServerName,
+		Version:         "1.0",
+		Port:            s.boundPort,
+		TLSPort:         s.boundTLSPort,
+		CertFingerprint: s.certFingerprint,
+		Folders:         pubFolders,
 	})
 }
 
@@ -265,34 +335,15 @@ func (s *Server) handleFoldersAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	switch r.Method {
-	case http.MethodGet:
-		cfg := s.store.GetConfig()
-		_ = json.NewEncoder(w).Encode(cfg.Folders)
-	case http.MethodPost:
-		r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
-		var req struct {
-			Name   string `json:"name"`
-			Path   string `json:"path"`
-			IsSync bool   `json:"is_sync"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		f, err := s.store.AddFolderSync(req.Name, req.Path, req.IsSync)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		_ = json.NewEncoder(w).Encode(f)
-	case http.MethodDelete:
-		id := r.URL.Query().Get("id")
-		if id != "" {
-			_ = s.store.RemoveFolder(id)
-		}
-		_ = json.NewEncoder(w).Encode(map[string]bool{"success": true})
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", "GET")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "remote folder modification is disabled for security; manage folders locally on device"})
+		return
 	}
+
+	cfg := s.store.GetConfig()
+	_ = json.NewEncoder(w).Encode(cfg.Folders)
 }
 
 // GetLocalIPs returns non-loopback IPv4 addresses, prioritizing Wi-Fi

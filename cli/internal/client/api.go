@@ -2,6 +2,10 @@ package client
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
@@ -14,19 +18,62 @@ import (
 	"time"
 )
 
+// NewSecureHTTPClient returns an http.Client verifying peer certificate SHA-256 fingerprint (Certificate Pinning)
+func NewSecureHTTPClient(certFingerprint string, timeout time.Duration) *http.Client {
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: true, // Verification is performed via VerifyPeerCertificate
+			VerifyPeerCertificate: func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
+				if len(rawCerts) == 0 {
+					return fmt.Errorf("no certificate presented by server")
+				}
+				if certFingerprint == "" {
+					return nil // Pinning not set
+				}
+				sum := sha256.Sum256(rawCerts[0])
+				fp := strings.ToUpper(hex.EncodeToString(sum[:]))
+				cleanPinned := strings.ToUpper(strings.ReplaceAll(certFingerprint, ":", ""))
+				cleanFP := strings.ToUpper(strings.ReplaceAll(fp, ":", ""))
+				if cleanFP != cleanPinned {
+					return fmt.Errorf("certificate fingerprint mismatch! Expected %s, got %s", cleanPinned, cleanFP)
+				}
+				return nil
+			},
+		},
+	}
+	return &http.Client{
+		Transport: transport,
+		Timeout:   timeout,
+	}
+}
+
+func getHTTPClientAndBaseURL(ip string, port, tlsPort int, certFP string, timeout time.Duration) (*http.Client, string) {
+	if tlsPort > 0 {
+		return NewSecureHTTPClient(certFP, timeout), fmt.Sprintf("https://%s:%d", ip, tlsPort)
+	}
+	return &http.Client{Timeout: timeout}, fmt.Sprintf("http://%s:%d", ip, port)
+}
+
 type PairRequest struct {
 	PIN        string `json:"pin"`
 	DeviceName string `json:"device_name"`
 }
 
 type PairResponse struct {
-	Success    bool   `json:"success"`
-	Token      string `json:"token,omitempty"`
-	ServerName string `json:"server_name,omitempty"`
-	Error      string `json:"error,omitempty"`
+	Success         bool   `json:"success"`
+	Token           string `json:"token,omitempty"`
+	ServerName      string `json:"server_name,omitempty"`
+	TLSPort         int    `json:"tls_port,omitempty"`
+	CertFingerprint string `json:"cert_fingerprint,omitempty"`
+	Error           string `json:"error,omitempty"`
 }
 
 func Pair(ip string, port int, pin string, deviceName string) (string, string, error) {
+	token, serverName, _, _, err := PairSecure(ip, port, pin, deviceName)
+	return token, serverName, err
+}
+
+func PairSecure(ip string, port int, pin string, deviceName string) (string, string, int, string, error) {
 	if deviceName == "" {
 		host, err := os.Hostname()
 		if err == nil && host != "" {
@@ -41,7 +88,7 @@ func Pair(ip string, port int, pin string, deviceName string) (string, string, e
 		DeviceName: deviceName,
 	})
 	if err != nil {
-		return "", "", err
+		return "", "", 0, "", err
 	}
 
 	url := fmt.Sprintf("http://%s:%d/api/pair", ip, port)
@@ -49,20 +96,20 @@ func Pair(ip string, port int, pin string, deviceName string) (string, string, e
 
 	resp, err := httpClient.Post(url, "application/json", bytes.NewReader(reqBody))
 	if err != nil {
-		return "", "", fmt.Errorf("Connection to %s failed: %w", url, err)
+		return "", "", 0, "", fmt.Errorf("Connection to %s failed: %w", url, err)
 	}
 	defer resp.Body.Close()
 
 	var pairResp PairResponse
 	if err := json.NewDecoder(resp.Body).Decode(&pairResp); err != nil {
-		return "", "", fmt.Errorf("Failed to decode response: %w", err)
+		return "", "", 0, "", fmt.Errorf("Failed to decode response: %w", err)
 	}
 
 	if !pairResp.Success {
-		return "", "", fmt.Errorf("Pairing failed: %s", pairResp.Error)
+		return "", "", 0, "", fmt.Errorf("Pairing failed: %s", pairResp.Error)
 	}
 
-	return pairResp.Token, pairResp.ServerName, nil
+	return pairResp.Token, pairResp.ServerName, pairResp.TLSPort, pairResp.CertFingerprint, nil
 }
 
 // Ping checks if the server is accessible
@@ -86,10 +133,12 @@ type RemoteFolder struct {
 }
 
 type ServerInfo struct {
-	Name    string         `json:"name"`
-	Version string         `json:"version"`
-	Port    int            `json:"port"`
-	Folders []RemoteFolder `json:"folders"`
+	Name            string         `json:"name"`
+	Version         string         `json:"version"`
+	Port            int            `json:"port"`
+	TLSPort         int            `json:"tls_port,omitempty"`
+	CertFingerprint string         `json:"cert_fingerprint,omitempty"`
+	Folders         []RemoteFolder `json:"folders"`
 }
 
 // FetchServerInfo queries /api/info to retrieve device name and shared folders list
@@ -126,6 +175,11 @@ func FetchServerName(ip string, port int) string {
 // It first attempts the lightweight /api/auth/verify endpoint, and falls back to
 // WebDAV root with Authorization header for backward compatibility.
 func VerifyToken(ip string, port int, token string) bool {
+	return VerifyTokenSecure(ip, port, 0, "", token)
+}
+
+// VerifyTokenSecure checks whether the provided token is accepted, using TLS if configured
+func VerifyTokenSecure(ip string, port, tlsPort int, certFP, token string) bool {
 	if token == "" || ip == "" {
 		return false
 	}
@@ -133,10 +187,10 @@ func VerifyToken(ip string, port int, token string) bool {
 		port = 8484
 	}
 
-	httpClient := &http.Client{Timeout: 1200 * time.Millisecond}
+	httpClient, baseURL := getHTTPClientAndBaseURL(ip, port, tlsPort, certFP, 1200*time.Millisecond)
 
 	// 1. Try /api/auth/verify
-	verifyURL := fmt.Sprintf("http://%s:%d/api/auth/verify", ip, port)
+	verifyURL := fmt.Sprintf("%s/api/auth/verify", baseURL)
 	req, err := http.NewRequest(http.MethodGet, verifyURL, nil)
 	if err == nil {
 		req.Header.Set("Authorization", "Bearer "+token)
@@ -154,7 +208,7 @@ func VerifyToken(ip string, port int, token string) bool {
 	}
 
 	// 2. Fallback: WebDAV check on root
-	davURL := fmt.Sprintf("http://%s:%d/", ip, port)
+	davURL := fmt.Sprintf("%s/", baseURL)
 	reqDAV, err := http.NewRequest("PROPFIND", davURL, nil)
 	if err == nil {
 		reqDAV.Header.Set("Authorization", "Bearer "+token)
@@ -214,8 +268,13 @@ type davMultiStatus struct {
 
 // ListRemoteTree recursively lists all files and directories in remoteFolder via PROPFIND.
 func ListRemoteTree(ip string, port int, token string, folderName string) (map[string]RemoteFileInfo, error) {
-	httpClient := &http.Client{Timeout: 30 * time.Second}
-	folderURL := fmt.Sprintf("http://%s:%d/%s/", ip, port, url.PathEscape(folderName))
+	return ListRemoteTreeSecure(ip, port, 0, "", token, folderName)
+}
+
+// ListRemoteTreeSecure recursively lists files and directories over TLS when configured
+func ListRemoteTreeSecure(ip string, port, tlsPort int, certFP, token, folderName string) (map[string]RemoteFileInfo, error) {
+	httpClient, baseURL := getHTTPClientAndBaseURL(ip, port, tlsPort, certFP, 30*time.Second)
+	folderURL := fmt.Sprintf("%s/%s/", baseURL, url.PathEscape(folderName))
 
 	req, err := http.NewRequest("PROPFIND", folderURL, nil)
 	if err != nil {
@@ -308,6 +367,11 @@ func ListRemoteTree(ip string, port int, token string, folderName string) (map[s
 
 // UploadFile uploads a local file to the phone WebDAV server via HTTP PUT.
 func UploadFile(ip string, port int, token string, remotePath string, localPath string) error {
+	return UploadFileSecure(ip, port, 0, "", token, remotePath, localPath)
+}
+
+// UploadFileSecure uploads a local file over TLS when configured, verifying cert fingerprint
+func UploadFileSecure(ip string, port, tlsPort int, certFP string, token string, remotePath string, localPath string) error {
 	file, err := os.Open(localPath)
 	if err != nil {
 		return err
@@ -325,7 +389,8 @@ func UploadFile(ip string, port int, token string, remotePath string, localPath 
 	}
 	escapedPath := strings.Join(parts, "/")
 
-	uploadURL := fmt.Sprintf("http://%s:%d/%s", ip, port, escapedPath)
+	httpClient, baseURL := getHTTPClientAndBaseURL(ip, port, tlsPort, certFP, 10*time.Minute)
+	uploadURL := fmt.Sprintf("%s/%s", baseURL, escapedPath)
 	req, err := http.NewRequest("PUT", uploadURL, file)
 	if err != nil {
 		return err
@@ -334,7 +399,6 @@ func UploadFile(ip string, port int, token string, remotePath string, localPath 
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/octet-stream")
 
-	httpClient := &http.Client{Timeout: 10 * time.Minute}
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		return err
@@ -349,20 +413,25 @@ func UploadFile(ip string, port int, token string, remotePath string, localPath 
 
 // DeleteRemote deletes a file or directory on the phone WebDAV server via HTTP DELETE.
 func DeleteRemote(ip string, port int, token string, remotePath string) error {
+	return DeleteRemoteSecure(ip, port, 0, "", token, remotePath)
+}
+
+// DeleteRemoteSecure deletes a remote file or directory over TLS when configured
+func DeleteRemoteSecure(ip string, port, tlsPort int, certFP string, token string, remotePath string) error {
 	parts := strings.Split(strings.TrimPrefix(remotePath, "/"), "/")
 	for i, p := range parts {
 		parts[i] = url.PathEscape(p)
 	}
 	escapedPath := strings.Join(parts, "/")
 
-	deleteURL := fmt.Sprintf("http://%s:%d/%s", ip, port, escapedPath)
+	httpClient, baseURL := getHTTPClientAndBaseURL(ip, port, tlsPort, certFP, 30*time.Second)
+	deleteURL := fmt.Sprintf("%s/%s", baseURL, escapedPath)
 	req, err := http.NewRequest("DELETE", deleteURL, nil)
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 
-	httpClient := &http.Client{Timeout: 30 * time.Second}
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		return err
@@ -377,20 +446,25 @@ func DeleteRemote(ip string, port int, token string, remotePath string) error {
 
 // MkcolRemote creates a directory on the phone WebDAV server via HTTP MKCOL.
 func MkcolRemote(ip string, port int, token string, remotePath string) error {
+	return MkcolRemoteSecure(ip, port, 0, "", token, remotePath)
+}
+
+// MkcolRemoteSecure creates a directory on the phone WebDAV server over TLS when configured
+func MkcolRemoteSecure(ip string, port, tlsPort int, certFP string, token string, remotePath string) error {
 	parts := strings.Split(strings.TrimPrefix(remotePath, "/"), "/")
 	for i, p := range parts {
 		parts[i] = url.PathEscape(p)
 	}
 	escapedPath := strings.Join(parts, "/")
 
-	mkcolURL := fmt.Sprintf("http://%s:%d/%s", ip, port, escapedPath)
+	httpClient, baseURL := getHTTPClientAndBaseURL(ip, port, tlsPort, certFP, 30*time.Second)
+	mkcolURL := fmt.Sprintf("%s/%s", baseURL, escapedPath)
 	req, err := http.NewRequest("MKCOL", mkcolURL, nil)
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 
-	httpClient := &http.Client{Timeout: 30 * time.Second}
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		return err

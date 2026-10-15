@@ -97,7 +97,7 @@ func Java_io_github_ijin_qsync_QSyncBridge_startServer(env *C.JNIEnv, clazz C.jc
 	if err := srv.Start(); err != nil {
 		return C.JNI_FALSE
 	}
-	_ = broadcaster.Start(cfg.ServerName, srv.Port())
+	_ = broadcaster.StartSecure(cfg.ServerName, srv.Port(), srv.TLSPort(), srv.CertFingerprint())
 	return C.JNI_TRUE
 }
 

@@ -118,32 +118,14 @@ func (d *DaemonService) Pair(pin string, ip string, port int) (bool, string, str
 		targetPort = 8484
 	}
 
-	token, serverName, err := client.Pair(targetIP, targetPort, pin, "")
+	token, serverName, tlsPort, certFP, err := client.PairSecure(targetIP, targetPort, pin, "")
 	if err != nil {
 		return false, "", err.Error(), nil
 	}
 
-	// Save token both globally and device-specific
-	_ = keyring.SaveToken("", token)
-	deviceKey := keyring.NormalizeServerKey(serverName)
-	if err := keyring.SaveToken(deviceKey, token); err != nil {
+	if err := keyring.UpdatePairedDeviceSecure(serverName, targetIP, targetPort, tlsPort, certFP, token); err != nil {
 		return false, "", err.Error(), nil
 	}
-
-	cfg, _ := keyring.LoadConfig()
-	cfg.LastServerName = serverName
-	cfg.LastServerIP = targetIP
-	cfg.LastServerPort = targetPort
-	if cfg.PairedDevices == nil {
-		cfg.PairedDevices = make(map[string]keyring.DeviceInfo)
-	}
-	cfg.PairedDevices[serverName] = keyring.DeviceInfo{
-		Name:  serverName,
-		IP:    targetIP,
-		Port:  targetPort,
-		Token: token,
-	}
-	_ = keyring.SaveConfig(cfg)
 
 	d.phoneFound = true
 	d.phoneName = serverName

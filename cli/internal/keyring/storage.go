@@ -18,10 +18,12 @@ const (
 var configMu sync.Mutex
 
 type DeviceInfo struct {
-	Name  string `json:"name"`
-	IP    string `json:"ip"`
-	Port  int    `json:"port"`
-	Token string `json:"token,omitempty"`
+	Name            string `json:"name"`
+	IP              string `json:"ip"`
+	Port            int    `json:"port"`
+	TLSPort         int    `json:"tls_port,omitempty"`
+	CertFingerprint string `json:"cert_fingerprint,omitempty"`
+	Token           string `json:"token,omitempty"`
 }
 
 type Config struct {
@@ -138,7 +140,7 @@ func SaveToken(serverID, token string) error {
 		serverID = DefaultKey
 	}
 	// Save to system keyring if available
-	_ = oskeyring.Set(ServiceName, serverID, token)
+	keyringErr := oskeyring.Set(ServiceName, serverID, token)
 
 	configMu.Lock()
 	defer configMu.Unlock()
@@ -147,9 +149,19 @@ func SaveToken(serverID, token string) error {
 	if cfg.Tokens == nil {
 		cfg.Tokens = make(map[string]string)
 	}
-	cfg.Tokens[serverID] = token
-	if serverID == DefaultKey {
-		cfg.DefaultToken = token
+
+	if keyringErr != nil {
+		// Keyring unavailable (e.g. headless/test environment): save as fallback
+		cfg.Tokens[serverID] = token
+		if serverID == DefaultKey {
+			cfg.DefaultToken = token
+		}
+	} else {
+		// Keyring succeeded: do NOT leak plaintext token to config file
+		delete(cfg.Tokens, serverID)
+		if serverID == DefaultKey {
+			cfg.DefaultToken = ""
+		}
 	}
 	return saveConfigLocked(cfg)
 }
@@ -221,6 +233,11 @@ func DeleteToken(serverID string) error {
 
 // UpdatePairedDevice updates or renames a paired device in config when tokens match
 func UpdatePairedDevice(name, ip string, port int, token string) error {
+	return UpdatePairedDeviceSecure(name, ip, port, 0, "", token)
+}
+
+// UpdatePairedDeviceSecure updates device info with TLS configuration and certificate fingerprint
+func UpdatePairedDeviceSecure(name, ip string, port, tlsPort int, certFP, token string) error {
 	if name == "" {
 		return nil
 	}
@@ -267,21 +284,38 @@ func UpdatePairedDevice(name, ip string, port int, token string) error {
 		}
 	}
 
-	cfg.PairedDevices[name] = DeviceInfo{
-		Name:  name,
-		IP:    ip,
-		Port:  port,
-		Token: token,
+	newKey := NormalizeServerKey(name)
+	keyringSuccess := false
+	if token != "" {
+		err1 := oskeyring.Set(ServiceName, newKey, token)
+		err2 := oskeyring.Set(ServiceName, name, token)
+		err3 := oskeyring.Set(ServiceName, DefaultKey, token)
+		if err1 == nil && err2 == nil && err3 == nil {
+			keyringSuccess = true
+		}
 	}
 
-	newKey := NormalizeServerKey(name)
-	cfg.Tokens[newKey] = token
-	if token != "" {
-		cfg.DefaultToken = token
+	savedToken := ""
+	if !keyringSuccess && token != "" {
+		// Fallback: save to json only if keyring is unavailable
+		savedToken = token
+		cfg.Tokens[newKey] = token
 		cfg.Tokens[DefaultKey] = token
-		_ = oskeyring.Set(ServiceName, newKey, token)
-		_ = oskeyring.Set(ServiceName, name, token)
-		_ = oskeyring.Set(ServiceName, DefaultKey, token)
+		cfg.DefaultToken = token
+	} else {
+		// Keyring succeeded: do not store token in json
+		delete(cfg.Tokens, newKey)
+		delete(cfg.Tokens, DefaultKey)
+		cfg.DefaultToken = ""
+	}
+
+	cfg.PairedDevices[name] = DeviceInfo{
+		Name:            name,
+		IP:              ip,
+		Port:            port,
+		TLSPort:         tlsPort,
+		CertFingerprint: certFP,
+		Token:           savedToken,
 	}
 
 	if cfg.LastServerIP == ip || cfg.LastServerName == "" {
