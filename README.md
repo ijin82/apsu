@@ -34,8 +34,6 @@ The project is structured as a monorepo containing:
    - In-extension PIN pairing modal dialog.
    - One-click drive mounting and opening in Nautilus.
 
----
-
 ## Building from Source
 
 ### Prerequisites
@@ -93,8 +91,6 @@ To uninstall and remove all desktop components:
 ./scripts/install_linux.sh uninstall
 ```
 
----
-
 ## 🔄 Synchronized Folders (Desktop ➔ Phone One-Way Sync)
 
 Starting in version 1.2, qSync introduces **One-Way Folder Synchronization** from your Linux desktop directly to your Android device.
@@ -123,8 +119,6 @@ To prevent accidental data loss:
    - Click **Save**.
 3. **Run Sync**: Click **🔄 Sync Now** from the top bar menu or run `qsync sync` in your terminal. The icon will indicate progress without interrupting you with toast notifications.
 
----
-
 ## Quick Usage
 
 1. **Android**:
@@ -139,7 +133,9 @@ To prevent accidental data loss:
    - Select **Pair Phone...** and enter the 6-digit PIN.
    - Click **Mount** — your phone folders will immediately open in Nautilus as network drives!
 
----
+## Screenshots
+
+<img width="1044" height="538" alt="Screenshot From 2026-10-15 11-53-47 (Edit)" src="https://github.com/user-attachments/assets/cdaa3516-50b9-41d7-85f7-ce57bbb69d15" />
 
 ## 🤝 Call for Contributors: Bring qSync to More Platforms!
 
@@ -155,8 +151,6 @@ We are looking for enthusiastic developers and contributors to help create nativ
   - Generic cross-desktop system tray app (e.g., Qt, GTK, Tauri, Fyne, or Wails)
 
 If you're interested in building a UI for your favorite platform or desktop environment, please feel free to open an issue, start a discussion, or submit a pull request!
-
----
 
 ## License
 MIT License
