@@ -311,6 +311,51 @@ func TestServerSecurityHardening(t *testing.T) {
 			t.Fatalf("security violation: /api/info leaked internal filesystem path: %v", pathVal)
 		}
 	}
+
+	// 5. Authenticated /api/folders MUST also omit internal filesystem path
+	foldersReq, _ := http.NewRequest("GET", baseURL+"/api/folders", nil)
+	foldersReq.Header.Set("Authorization", "Bearer "+token)
+	foldersResp, err := client.Do(foldersReq)
+	if err != nil {
+		t.Fatalf("failed to query /api/folders: %v", err)
+	}
+	foldersBody, _ := io.ReadAll(foldersResp.Body)
+	foldersResp.Body.Close()
+	if foldersResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for /api/folders, got %d", foldersResp.StatusCode)
+	}
+
+	var foldersList []map[string]interface{}
+	if err := json.Unmarshal(foldersBody, &foldersList); err != nil {
+		t.Fatalf("failed to parse /api/folders JSON: %v", err)
+	}
+	for _, f := range foldersList {
+		if pathVal, exists := f["path"]; exists && pathVal != "" {
+			t.Fatalf("security violation: /api/folders leaked internal filesystem path: %v", pathVal)
+		}
+	}
+
+	// 6. Test Rate Limiting on repeated failed token verifications
+	for i := 0; i < 20; i++ {
+		reqBad, _ := http.NewRequest("GET", baseURL+"/api/auth/verify", nil)
+		reqBad.Header.Set("Authorization", "Bearer invalid-token")
+		respBad, err := client.Do(reqBad)
+		if err == nil {
+			respBad.Body.Close()
+		}
+	}
+
+	// 21st attempt should be rate limited (429 Too Many Requests)
+	reqRateLimited, _ := http.NewRequest("GET", baseURL+"/api/auth/verify", nil)
+	reqRateLimited.Header.Set("Authorization", "Bearer invalid-token")
+	respRateLimited, err := client.Do(reqRateLimited)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer respRateLimited.Body.Close()
+	if respRateLimited.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("expected 429 Too Many Requests after 20 failed attempts, got %d", respRateLimited.StatusCode)
+	}
 }
 
 func httpPortString(port int) string {

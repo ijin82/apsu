@@ -28,6 +28,9 @@ type Server struct {
 	boundPort       int
 	boundTLSPort    int
 	certFingerprint string
+
+	rateMu     sync.Mutex
+	failedAuth map[string][]time.Time
 }
 
 type PairRequest struct {
@@ -48,6 +51,7 @@ func NewServer(store *storage.Manager, pairingMgr *auth.PairingManager) *Server 
 	return &Server{
 		store:      store,
 		pairingMgr: pairingMgr,
+		failedAuth: make(map[string][]time.Time),
 	}
 }
 
@@ -236,7 +240,57 @@ func (s *Server) handlePair(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func getClientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
+func (s *Server) isRateLimited(ip string) bool {
+	s.rateMu.Lock()
+	defer s.rateMu.Unlock()
+
+	attempts, exists := s.failedAuth[ip]
+	if !exists {
+		return false
+	}
+
+	cutoff := time.Now().Add(-1 * time.Minute)
+	var recent []time.Time
+	for _, t := range attempts {
+		if t.After(cutoff) {
+			recent = append(recent, t)
+		}
+	}
+	s.failedAuth[ip] = recent
+
+	// More than 20 failed authentication attempts within 1 minute
+	return len(recent) >= 20
+}
+
+func (s *Server) recordFailedAuth(ip string) {
+	s.rateMu.Lock()
+	defer s.rateMu.Unlock()
+
+	cutoff := time.Now().Add(-1 * time.Minute)
+	var recent []time.Time
+	for _, t := range s.failedAuth[ip] {
+		if t.After(cutoff) {
+			recent = append(recent, t)
+		}
+	}
+	recent = append(recent, time.Now())
+	s.failedAuth[ip] = recent
+}
+
 func (s *Server) authenticateRequest(r *http.Request) bool {
+	ip := getClientIP(r)
+	if s.isRateLimited(ip) {
+		return false
+	}
+
 	if _, pass, ok := r.BasicAuth(); ok && pass != "" {
 		if s.pairingMgr.IsTokenValid(pass) {
 			return true
@@ -249,10 +303,23 @@ func (s *Server) authenticateRequest(r *http.Request) bool {
 			return true
 		}
 	}
+
+	s.recordFailedAuth(ip)
 	return false
 }
 
 func (s *Server) handleAuthVerify(w http.ResponseWriter, r *http.Request) {
+	ip := getClientIP(r)
+	if s.isRateLimited(ip) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"valid": false,
+			"error": "too many failed authentication attempts; rate limited",
+		})
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	if s.authenticateRequest(r) {
 		w.WriteHeader(http.StatusOK)
@@ -343,7 +410,15 @@ func (s *Server) handleFoldersAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cfg := s.store.GetConfig()
-	_ = json.NewEncoder(w).Encode(cfg.Folders)
+	pubFolders := make([]PublicFolderInfo, len(cfg.Folders))
+	for i, f := range cfg.Folders {
+		pubFolders[i] = PublicFolderInfo{
+			ID:     f.ID,
+			Name:   f.Name,
+			IsSync: f.IsSync,
+		}
+	}
+	_ = json.NewEncoder(w).Encode(pubFolders)
 }
 
 // GetLocalIPs returns non-loopback IPv4 addresses, prioritizing Wi-Fi

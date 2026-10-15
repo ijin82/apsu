@@ -40,9 +40,35 @@ func GetCertificateFingerprintFromFile(certPath string) (string, error) {
 // If not found, it generates a new ECDSA P-256 certificate valid for 10 years.
 // It returns the uppercase SHA-256 fingerprint of the certificate.
 func EnsureTLSCertificate(certPath, keyPath string, hostnames []string, ips []string) (string, error) {
-	if _, errCert := os.Stat(certPath); errCert == nil {
+	if certData, errCert := os.ReadFile(certPath); errCert == nil {
 		if _, errKey := os.Stat(keyPath); errKey == nil {
-			return GetCertificateFingerprintFromFile(certPath)
+			block, _ := pem.Decode(certData)
+			if block != nil && block.Type == "CERTIFICATE" {
+				if parsedCert, err := x509.ParseCertificate(block.Bytes); err == nil && time.Now().Before(parsedCert.NotAfter) {
+					// Verify that all requested ips are already in SAN
+					allCovered := true
+					for _, ipStr := range ips {
+						targetIP := net.ParseIP(ipStr)
+						if targetIP == nil {
+							continue
+						}
+						found := false
+						for _, certIP := range parsedCert.IPAddresses {
+							if certIP.Equal(targetIP) {
+								found = true
+								break
+							}
+						}
+						if !found {
+							allCovered = false
+							break
+						}
+					}
+					if allCovered {
+						return FingerprintBytes(block.Bytes), nil
+					}
+				}
+			}
 		}
 	}
 
