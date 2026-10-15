@@ -11,6 +11,24 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
+# Auto-detect JAVA_HOME if unset or java not found in PATH
+if [ -z "${JAVA_HOME}" ] || ! command -v java >/dev/null 2>&1; then
+    for candidate in \
+        "${HOME}/android-studio/jbr" \
+        "/opt/android-studio/jbr" \
+        "/usr/local/android-studio/jbr" \
+        "${HOME}/.local/share/JetBrains/Toolbox/apps/android-studio/jbr" \
+        "/snap/android-studio/current/jbr"
+    do
+        if [ -d "${candidate}" ] && [ -x "${candidate}/bin/java" ]; then
+            export JAVA_HOME="${candidate}"
+            export PATH="${JAVA_HOME}/bin:${PATH}"
+            echo "==> Auto-detected JAVA_HOME: ${JAVA_HOME}"
+            break
+        fi
+    done
+fi
+
 # Ask for version if not provided as first argument
 VERSION="$1"
 if [ -z "${VERSION}" ]; then
