@@ -49,6 +49,64 @@ func (v *VirtualFS) findFolder(topName string) (storage.SharedFolder, bool) {
 	return storage.SharedFolder{}, false
 }
 
+// isUnderDir checks whether target is equal to or a subpath of base
+func isUnderDir(target, base string) bool {
+	rel, err := filepath.Rel(base, target)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (!strings.HasPrefix(rel, "..") && !filepath.IsAbs(rel))
+}
+
+// resolveSecurePath ensures that the requested subpath stays strictly inside baseFolder,
+// resolving any symlinks and preventing traversal/symlink escape.
+func resolveSecurePath(baseFolder, sub string) (string, error) {
+	cleanBase := filepath.Clean(baseFolder)
+	realBase, err := filepath.EvalSymlinks(cleanBase)
+	if err != nil {
+		realBase = cleanBase
+	}
+	realBase = filepath.Clean(realBase)
+
+	cleanSub := filepath.Clean(filepath.FromSlash(path.Clean("/" + sub)))
+	targetPath := filepath.Clean(filepath.Join(realBase, cleanSub))
+
+	if !isUnderDir(targetPath, realBase) {
+		return "", os.ErrPermission
+	}
+
+	// Check existing ancestors for symlinks that escape realBase
+	curr := targetPath
+	for {
+		fi, err := os.Lstat(curr)
+		if err == nil {
+			if fi.Mode()&os.ModeSymlink != 0 {
+				resolved, err := filepath.EvalSymlinks(curr)
+				if err != nil {
+					return "", os.ErrPermission
+				}
+				if !isUnderDir(filepath.Clean(resolved), realBase) {
+					return "", os.ErrPermission
+				}
+			}
+		}
+		parent := filepath.Dir(curr)
+		if parent == curr || parent == "." || parent == "/" {
+			break
+		}
+		curr = parent
+	}
+
+	// If the file/dir itself already exists, evaluate full symlinks
+	if resolvedTarget, err := filepath.EvalSymlinks(targetPath); err == nil {
+		if !isUnderDir(filepath.Clean(resolvedTarget), realBase) {
+			return "", os.ErrPermission
+		}
+	}
+
+	return targetPath, nil
+}
+
 func (v *VirtualFS) Mkdir(ctx context.Context, name string, perm os.FileMode) error {
 	top, sub := splitPath(name)
 	if top == "" || sub == "/" {
@@ -57,6 +115,9 @@ func (v *VirtualFS) Mkdir(ctx context.Context, name string, perm os.FileMode) er
 	folder, found := v.findFolder(top)
 	if !found {
 		return os.ErrNotExist
+	}
+	if _, err := resolveSecurePath(folder.Path, sub); err != nil {
+		return err
 	}
 	_ = os.MkdirAll(folder.Path, 0755)
 	return webdav.Dir(folder.Path).Mkdir(ctx, sub, perm)
@@ -97,6 +158,12 @@ func (v *VirtualFS) OpenFile(ctx context.Context, name string, flag int, perm os
 	folder, found := v.findFolder(top)
 	if !found {
 		return nil, os.ErrNotExist
+	}
+
+	if sub != "/" && sub != "" {
+		if _, err := resolveSecurePath(folder.Path, sub); err != nil {
+			return nil, err
+		}
 	}
 
 	// If writing or creating a file, ensure the folder and intermediate subdirectories exist
@@ -146,6 +213,9 @@ func (v *VirtualFS) RemoveAll(ctx context.Context, name string) error {
 	if !found {
 		return os.ErrNotExist
 	}
+	if _, err := resolveSecurePath(folder.Path, sub); err != nil {
+		return err
+	}
 	return webdav.Dir(folder.Path).RemoveAll(ctx, sub)
 }
 
@@ -165,6 +235,13 @@ func (v *VirtualFS) Rename(ctx context.Context, oldName, newName string) error {
 	folder, found := v.findFolder(oldTop)
 	if !found {
 		return os.ErrNotExist
+	}
+
+	if _, err := resolveSecurePath(folder.Path, oldSub); err != nil {
+		return err
+	}
+	if _, err := resolveSecurePath(folder.Path, newSub); err != nil {
+		return err
 	}
 
 	destDir := filepath.Dir(filepath.Join(folder.Path, filepath.FromSlash(path.Clean(newSub))))
@@ -205,6 +282,10 @@ func (v *VirtualFS) Stat(ctx context.Context, name string) (os.FileInfo, error) 
 			mode:    fi.Mode() | os.ModeDir,
 			modTime: fi.ModTime(),
 		}, nil
+	}
+
+	if _, err := resolveSecurePath(folder.Path, sub); err != nil {
+		return nil, err
 	}
 
 	return webdav.Dir(folder.Path).Stat(ctx, sub)

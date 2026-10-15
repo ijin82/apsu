@@ -185,3 +185,153 @@ func TestSyncEngine(t *testing.T) {
 	}
 	fmt.Printf("Sync completed successfully: %s\n", summary)
 }
+
+func TestIsProtectedPath(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		home = "/home/testuser"
+	}
+
+	tests := []struct {
+		path      string
+		protected bool
+	}{
+		{"/", true},
+		{"/etc", true},
+		{"/usr", true},
+		{"/var", true},
+		{"/tmp", true},
+		{home, true},
+		{filepath.Join(home, ".ssh"), true},
+		{filepath.Join(home, ".ssh", "id_rsa"), true},
+		{filepath.Join(home, ".gnupg"), true},
+		{filepath.Join(home, ".config"), true},
+		{filepath.Join(home, ".config", "qsync"), true},
+		{filepath.Join(home, "Music"), false},
+		{filepath.Join(home, "Documents", "qSync"), false},
+		{filepath.Join(home, "Downloads"), false},
+	}
+
+	for _, tt := range tests {
+		got, reason := IsProtectedPath(tt.path)
+		if got != tt.protected {
+			t.Errorf("IsProtectedPath(%q) = %v (reason: %q), expected %v", tt.path, got, reason, tt.protected)
+		}
+	}
+}
+
+func TestSyncEngine_SafetyChecks(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tempDir)
+
+	emptyLocal := filepath.Join(tempDir, "EmptyLocal")
+	_ = os.MkdirAll(emptyLocal, 0755)
+
+	remoteFiles := map[string][]byte{
+		"Backup/photo1.jpg": []byte("image data 1"),
+		"Backup/photo2.jpg": []byte("image data 2"),
+		"Backup/photo3.jpg": []byte("image data 3"),
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case "GET":
+			if r.URL.Path == "/api/info" {
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{
+					"name": "SafetyPhone",
+					"folders": [
+						{"id": "1", "name": "Backup", "path": "/storage/Backup", "is_sync": true}
+					]
+				}`))
+				return
+			}
+			w.WriteHeader(http.StatusNotFound)
+		case "PROPFIND":
+			type ResType struct {
+				Collection *struct{} `xml:"D:collection"`
+			}
+			type Prop struct {
+				ResourceType     ResType `xml:"D:resourcetype"`
+				GetContentLength int64   `xml:"D:getcontentlength"`
+				GetLastModified  string  `xml:"D:getlastmodified"`
+			}
+			type PropStat struct {
+				Prop   Prop   `xml:"D:prop"`
+				Status string `xml:"D:status"`
+			}
+			type Resp struct {
+				Href     string   `xml:"D:href"`
+				PropStat PropStat `xml:"D:propstat"`
+			}
+			type MultiStatus struct {
+				XMLName   xml.Name `xml:"D:multistatus"`
+				Xmlns     string   `xml:"xmlns:D,attr"`
+				Responses []Resp   `xml:"D:response"`
+			}
+
+			ms := MultiStatus{
+				Xmlns: "DAV:",
+				Responses: []Resp{
+					{
+						Href: "/Backup/",
+						PropStat: PropStat{
+							Prop:   Prop{ResourceType: ResType{Collection: &struct{}{}}},
+							Status: "HTTP/1.1 200 OK",
+						},
+					},
+				},
+			}
+			for f, data := range remoteFiles {
+				ms.Responses = append(ms.Responses, Resp{
+					Href: "/" + f,
+					PropStat: PropStat{
+						Prop: Prop{
+							GetContentLength: int64(len(data)),
+							GetLastModified:  time.Now().Add(-1 * time.Hour).UTC().Format(http.TimeFormat),
+						},
+						Status: "HTTP/1.1 200 OK",
+					},
+				})
+			}
+			w.Header().Set("Content-Type", "application/xml")
+			w.WriteHeader(http.StatusMultiStatus)
+			_ = xml.NewEncoder(w).Encode(ms)
+		case "DELETE":
+			delete(remoteFiles, strings.TrimPrefix(r.URL.Path, "/"))
+			w.WriteHeader(http.StatusNoContent)
+		}
+	}))
+	defer server.Close()
+
+	parts := strings.Split(strings.TrimPrefix(server.URL, "http://"), ":")
+	ip := parts[0]
+	port, _ := strconv.Atoi(parts[1])
+
+	_ = keyring.SetSyncMapping("SafetyPhone", "Backup", emptyLocal)
+
+	engine := NewSyncEngine(nil)
+
+	// 1. Safe mode (AllowMassDeletion = false): MUST abort deletion of remote files when local is empty
+	stats, _, err := engine.SyncDevice("SafetyPhone", ip, port, "token-123")
+	if stats.DeletedCount != 0 {
+		t.Fatalf("expected 0 deleted files in safe mode, got %d", stats.DeletedCount)
+	}
+	if len(remoteFiles) != 3 {
+		t.Fatalf("remote files were wiped! Expected 3, got %d", len(remoteFiles))
+	}
+	_ = err
+
+	// 2. AllowMassDeletion = true: MUST allow deletion
+	engine.AllowMassDeletion = true
+	stats, _, err = engine.SyncDevice("SafetyPhone", ip, port, "token-123")
+	if err != nil {
+		t.Fatalf("SyncDevice with AllowMassDeletion failed: %v", err)
+	}
+	if stats.DeletedCount != 3 {
+		t.Fatalf("expected 3 deleted files with AllowMassDeletion, got %d", stats.DeletedCount)
+	}
+	if len(remoteFiles) != 0 {
+		t.Fatalf("expected remote files to be cleared with AllowMassDeletion, got %d", len(remoteFiles))
+	}
+}

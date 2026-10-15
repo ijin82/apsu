@@ -23,13 +23,49 @@ type SyncStats struct {
 }
 
 type SyncEngine struct {
-	logger *SyncLogger
+	logger            *SyncLogger
+	AllowMassDeletion bool
 }
 
 func NewSyncEngine(logger *SyncLogger) *SyncEngine {
 	return &SyncEngine{
 		logger: logger,
 	}
+}
+
+// IsProtectedPath checks whether a directory is a system root or sensitive user folder.
+func IsProtectedPath(path string) (bool, string) {
+	clean := filepath.Clean(path)
+	if clean == "/" || clean == "/home" || clean == "/etc" || clean == "/usr" ||
+		clean == "/var" || clean == "/bin" || clean == "/sbin" || clean == "/boot" ||
+		clean == "/root" || clean == "/sys" || clean == "/proc" || clean == "/dev" ||
+		clean == "/run" || clean == "/tmp" || clean == "/lost+found" {
+		return true, fmt.Sprintf("'%s' is a protected system directory", clean)
+	}
+
+	homeDir, err := os.UserHomeDir()
+	if err == nil && homeDir != "" {
+		cleanHome := filepath.Clean(homeDir)
+		if clean == cleanHome {
+			return true, fmt.Sprintf("mapping the entire home directory '%s' is not allowed", clean)
+		}
+
+		sensitiveDirs := []string{
+			filepath.Join(cleanHome, ".ssh"),
+			filepath.Join(cleanHome, ".gnupg"),
+			filepath.Join(cleanHome, ".config"),
+			filepath.Join(cleanHome, ".local"),
+			filepath.Join(cleanHome, ".password-store"),
+			filepath.Join(cleanHome, ".pki"),
+		}
+		for _, s := range sensitiveDirs {
+			if clean == s || strings.HasPrefix(clean, s+string(filepath.Separator)) {
+				return true, fmt.Sprintf("'%s' is inside a protected user security directory (%s)", clean, s)
+			}
+		}
+	}
+
+	return false, ""
 }
 
 // SyncDevice synchronizes all configured syncable folders for a given device.
@@ -84,12 +120,9 @@ func (e *SyncEngine) SyncDevice(deviceName, ip string, port int, token string) (
 		}
 
 		cleanLocal := filepath.Clean(localPath)
-		homeDir, _ := os.UserHomeDir()
-		if cleanLocal == "/" || cleanLocal == "/home" || cleanLocal == homeDir ||
-			cleanLocal == "/etc" || cleanLocal == "/usr" || cleanLocal == "/var" ||
-			cleanLocal == "/bin" || cleanLocal == "/boot" || cleanLocal == "/root" {
+		if protected, reason := IsProtectedPath(cleanLocal); protected {
 			if e.logger != nil {
-				e.logger.LogInfo(rf.Name, fmt.Sprintf("REFUSED: '%s' is a protected system/root path and cannot be mapped as sync source", cleanLocal))
+				e.logger.LogInfo(rf.Name, fmt.Sprintf("REFUSED: %s and cannot be mapped as sync source", reason))
 			}
 			totalStats.SkippedCount++
 			continue
@@ -266,7 +299,36 @@ func (e *SyncEngine) syncSingleFolder(deviceName, ip string, port int, token str
 		}
 	}
 
-	// 5. Delete remote files that do not exist locally
+	// 5. Safety checks before remote deletion:
+	// Prevent accidental wiping of remote files if local folder is empty or mass deletion occurs
+	filesToDelete := 0
+	for rel := range remoteFiles {
+		if _, exists := localFiles[rel]; !exists {
+			filesToDelete++
+		}
+	}
+
+	if !e.AllowMassDeletion {
+		// Safety rule 1: If local directory is completely empty but remote has files/dirs, abort deletion!
+		if len(localFiles) == 0 && len(localDirs) == 0 && (len(remoteFiles) > 0 || len(remoteDirs) > 0) {
+			errMsg := fmt.Sprintf("ABORTED: Local folder '%s' is empty while remote folder has %d files and %d dirs; deletions aborted to prevent data loss", localRoot, len(remoteFiles), len(remoteDirs))
+			if e.logger != nil {
+				e.logger.LogInfo(remoteFolder, errMsg)
+			}
+			return stats, fmt.Errorf("%s", errMsg)
+		}
+
+		// Safety rule 2: If sync would delete more than 50% of remote files (when remote has >= 5 files), abort!
+		if len(remoteFiles) >= 5 && float64(filesToDelete)/float64(len(remoteFiles)) > 0.5 {
+			errMsg := fmt.Sprintf("ABORTED: Sync would delete %d of %d remote files (>50%%); deletions aborted for safety", filesToDelete, len(remoteFiles))
+			if e.logger != nil {
+				e.logger.LogInfo(remoteFolder, errMsg)
+			}
+			return stats, fmt.Errorf("%s", errMsg)
+		}
+	}
+
+	// 6. Delete remote files that do not exist locally
 	for rel := range remoteFiles {
 		if _, exists := localFiles[rel]; !exists {
 			remoteFilePath := remoteFolder + "/" + rel
@@ -284,7 +346,7 @@ func (e *SyncEngine) syncSingleFolder(deviceName, ip string, port int, token str
 		}
 	}
 
-	// 6. Delete remote directories that do not exist locally
+	// 7. Delete remote directories that do not exist locally
 	// Sort in reverse order so children directories are deleted before parents
 	sortedRemoteDirs := make([]string, 0, len(remoteDirs))
 	for d := range remoteDirs {
