@@ -1,4 +1,4 @@
-# Apsu — Android Phone Sync Utility (for Android & Linux GNOME)
+# apsu — Android Phone Sync Utility (for Android & Linux GNOME)
 
 **Apsu** (**A**ndroid **P**hone **S**ync **U**tility) is a lightweight, zero-friction local Wi-Fi file sharing and folder sync suite. It connects an Android phone to a Linux desktop (GNOME Shell / Nautilus) with zero cloud dependencies, no internet required, end-to-end PIN pairing, and high-speed local WebDAV transfers.
 
