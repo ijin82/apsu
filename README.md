@@ -2,7 +2,7 @@
 
 **Apsu** (**A**ndroid **P**hone **S**ync **U**tility) is a lightweight, zero-friction local Wi-Fi file sharing and folder sync suite. It connects an Android phone to a Linux desktop (GNOME Shell / Nautilus) with zero cloud dependencies, no internet required, end-to-end PIN pairing, and high-speed local WebDAV transfers.
 
-<img width="512" height="512" alt="ic_launcher-playstore" src="https://github.com/user-attachments/assets/a82b812e-c101-47d1-bf90-b71b00dc329a" />
+<img width="256" height="256" alt="ic_launcher-playstore" src="https://github.com/user-attachments/assets/a82b812e-c101-47d1-bf90-b71b00dc329a" />
 
 > [!NOTE]
 > ### 💡 Why "Apsu"? (A Story on Finding a Free Name in Modern Open Source)
