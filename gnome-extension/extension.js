@@ -178,7 +178,7 @@ class ApsuPairDialog extends ModalDialog.ModalDialog {
         this._ext.pairWithPhone(pin, targetIP, targetPort, (success, serverName, errorMsg) => {
             if (success) {
                 this.close();
-                Main.notify('Apsu', `Successfully paired with ${serverName}!`);
+                Main.notify('apsu', `Successfully paired with ${serverName}!`);
             } else {
                 this._pairButton.reactive = true;
                 this._pairButton.label = 'Pair';
@@ -411,7 +411,7 @@ class ApsuSettingsDialog extends ModalDialog.ModalDialog {
             if (path) {
                 const clean = path.replace(/\/+$/, '') || '/';
                 if (forbiddenPaths.has(clean)) {
-                    Main.notify('Apsu Error', `Cannot map '${clean}'. System roots and home directory cannot be synced.`);
+                    Main.notify('apsu Error', `Cannot map '${clean}'. System roots and home directory cannot be synced.`);
                     return;
                 }
             }
@@ -425,7 +425,7 @@ class ApsuSettingsDialog extends ModalDialog.ModalDialog {
         });
 
         this.close();
-        Main.notify('Apsu', 'Sync folder settings saved.');
+        Main.notify('apsu', 'Sync folder settings saved.');
     }
 });
 
@@ -434,14 +434,14 @@ const ApsuQuickToggle = GObject.registerClass(
 class ApsuQuickToggle extends QuickSettings.QuickMenuToggle {
     _init(extension) {
         super._init({
-            title: 'Apsu',
+            title: 'apsu',
             iconName: 'phone-symbolic',
             toggleMode: true,
         });
 
         this._isApsuToggle = true;
         this._ext = extension;
-        this.menu.setHeader('phone-symbolic', 'Apsu for Android', 'Local Wi-Fi file sync');
+        this.menu.setHeader('phone-symbolic', 'apsu for Android', 'Local Wi-Fi file sync');
 
         this._menuSection = new PopupMenu.PopupMenuSection();
         this.menu.addMenuItem(this._menuSection);
@@ -638,7 +638,7 @@ export default class ApsuExtension extends Extension {
                 for (const child of qsMenu._grid.get_children()) {
                     if (this._qsIndicator && child === this._qsIndicator.quickSettingsToggle)
                         continue;
-                    if (child.title === 'Apsu' || child._isApsuToggle || child._ext !== undefined || child.constructor?.name === 'ApsuQuickToggle') {
+                    if (child.title === 'apsu' || child.title === 'Apsu' || child._isApsuToggle || child._ext !== undefined || child.constructor?.name === 'ApsuQuickToggle') {
                         itemsToRemove.push(child);
                     }
                 }
@@ -650,7 +650,7 @@ export default class ApsuExtension extends Extension {
                 }
             }
         } catch (e) {
-            console.error('Apsu: error during quick settings cleanup', e);
+            console.error('apsu: error during quick settings cleanup', e);
         }
 
         try {
@@ -672,7 +672,7 @@ export default class ApsuExtension extends Extension {
     }
 
     _buildPanelMenu() {
-        this._menuHeader = new PopupMenu.PopupMenuItem('Apsu', {reactive: false});
+        this._menuHeader = new PopupMenu.PopupMenuItem('apsu', {reactive: false});
         this._indicator.menu.addMenuItem(this._menuHeader);
 
         this._devicesSection = new PopupMenu.PopupMenuSection();
@@ -695,7 +695,7 @@ export default class ApsuExtension extends Extension {
 
     pairWithPhone(pin, ip = '', port = 8484, callback = null) {
         if (!this._proxy) {
-            if (callback) callback(false, '', 'Daemon not running. Turn on Apsu first.');
+            if (callback) callback(false, '', 'Daemon not running. Turn on apsu first.');
             return;
         }
         const targetIP = ip || this._phoneIP || '';
@@ -964,14 +964,14 @@ export default class ApsuExtension extends Extension {
         // Update Top Bar Header (clean & static to avoid flicker)
         if (devices.length > 1) {
             const onlineCount = devices.filter(d => d.isOnline).length;
-            this._menuHeader.label.text = `Apsu • ${onlineCount}/${devices.length} Online`;
+            this._menuHeader.label.text = `apsu • ${onlineCount}/${devices.length} Online`;
         } else if (anyMounted) {
-            this._menuHeader.label.text = 'Apsu • Mounted';
+            this._menuHeader.label.text = 'apsu • Mounted';
         } else if (anyOnline) {
             const anyPaired = devices.some(d => d.isOnline && d.isPaired);
-            this._menuHeader.label.text = anyPaired ? 'Apsu • Ready' : 'Apsu • Pairing Required';
+            this._menuHeader.label.text = anyPaired ? 'apsu • Ready' : 'apsu • Pairing Required';
         } else {
-            this._menuHeader.label.text = 'Apsu • Searching Wi-Fi...';
+            this._menuHeader.label.text = 'apsu • Searching Wi-Fi...';
         }
 
         // 3. Render Devices in Menu with cache key check to eliminate flicker
