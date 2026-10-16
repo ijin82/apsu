@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"qsync/core/internal/auth"
-	"qsync/core/internal/storage"
+	"apsu/core/internal/auth"
+	"apsu/core/internal/storage"
 )
 
 func setupTestEnv(t *testing.T) (*storage.Manager, *auth.PairingManager, *Server, string, string) {
@@ -28,7 +28,7 @@ func setupTestEnv(t *testing.T) (*storage.Manager, *auth.PairingManager, *Server
 	}
 
 	// Create test file in folderA
-	if err := os.WriteFile(filepath.Join(folderA, "hello.txt"), []byte("Hello qSync!"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(folderA, "hello.txt"), []byte("Hello Apsu!"), 0644); err != nil {
 		t.Fatalf("failed to write test file: %v", err)
 	}
 
@@ -113,7 +113,7 @@ func TestServerPairingAndWebDAV(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create request: %v", err)
 	}
-	req.SetBasicAuth("qsync", pairData.Token)
+	req.SetBasicAuth("apsu", pairData.Token)
 
 	getResp, err := client.Do(req)
 	if err != nil {
@@ -129,7 +129,7 @@ func TestServerPairingAndWebDAV(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to read body: %v", err)
 	}
-	if string(content) != "Hello qSync!" {
+	if string(content) != "Hello Apsu!" {
 		t.Fatalf("unexpected content: %s", string(content))
 	}
 
@@ -138,7 +138,7 @@ func TestServerPairingAndWebDAV(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create PUT request: %v", err)
 	}
-	uploadReq.SetBasicAuth("qsync", pairData.Token)
+	uploadReq.SetBasicAuth("apsu", pairData.Token)
 	uploadResp, err := client.Do(uploadReq)
 	if err != nil {
 		t.Fatalf("PUT request failed: %v", err)

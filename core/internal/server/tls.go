@@ -86,8 +86,8 @@ func EnsureTLSCertificate(certPath, keyPath string, hostnames []string, ips []st
 	template := x509.Certificate{
 		SerialNumber: serialNumber,
 		Subject: pkix.Name{
-			Organization: []string{"qSync"},
-			CommonName:   "qSync Secure Server",
+			Organization: []string{"Apsu"},
+			CommonName:   "Apsu Secure Server",
 		},
 		NotBefore:             time.Now().Add(-1 * time.Hour),
 		NotAfter:              time.Now().Add(10 * 365 * 24 * time.Hour), // 10 years
@@ -98,7 +98,7 @@ func EnsureTLSCertificate(certPath, keyPath string, hostnames []string, ips []st
 
 	// Add localhost IP and names
 	template.IPAddresses = append(template.IPAddresses, net.ParseIP("127.0.0.1"), net.IPv6loopback)
-	template.DNSNames = append(template.DNSNames, "localhost", "qsync.local")
+	template.DNSNames = append(template.DNSNames, "localhost", "apsu.local")
 
 	for _, h := range hostnames {
 		if h != "" && h != "localhost" {

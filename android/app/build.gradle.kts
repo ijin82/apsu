@@ -14,13 +14,13 @@ val localProperties = Properties().apply {
 }
 
 android {
-    namespace = "io.github.ijin.qsync"
+    namespace = "io.github.ijin.apsu"
     compileSdk = 35
 
-    val appVersion = project.findProperty("appVersion") as? String ?: "1.2.5"
+    val appVersion = project.findProperty("appVersion") as? String ?: "1.4.1"
 
     defaultConfig {
-        applicationId = "io.github.ijin.qsync"
+        applicationId = "io.github.ijin.apsu"
         minSdk = 26
         targetSdk = 34
         versionCode = 1

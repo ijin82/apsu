@@ -13,7 +13,7 @@ build_arch() {
   local clang_target="$4"
   local out_dir="$REPO_ROOT/android/app/src/main/jniLibs/$arch"
 
-  echo "==> Building libqsyncserver.so for $arch (GOARCH=$goarch)..."
+  echo "==> Building libapsuserver.so for $arch (GOARCH=$goarch)..."
   mkdir -p "$out_dir"
 
   docker run --rm \
@@ -28,11 +28,11 @@ build_arch() {
      printf '#!/bin/bash\n/usr/local/android_sdk/ndk-bundle/toolchains/llvm/prebuilt/linux-x86_64/bin/clang --target=%s \"\$@\"\n' '$clang_target' > /tmp/target-clang; \
      chmod +x /tmp/target-clang; \
      export CC=/tmp/target-clang; \
-     CGO_ENABLED=1 GOOS=android GOARCH=$goarch GOARM=$goarm go build -ldflags="-w" -buildmode=c-shared -o /core/libqsyncserver.so ./jni_bridge.go"
+     CGO_ENABLED=1 GOOS=android GOARCH=$goarch GOARM=$goarm go build -ldflags="-w" -buildmode=c-shared -o /core/libapsuserver.so ./jni_bridge.go"
 
-  cp "$REPO_ROOT/core/libqsyncserver.so" "$out_dir/libqsyncserver.so"
-  rm -f "$REPO_ROOT/core/libqsyncserver.so" "$REPO_ROOT/core/libqsyncserver.h"
-  echo "==> Installed: $out_dir/libqsyncserver.so"
+  cp "$REPO_ROOT/core/libapsuserver.so" "$out_dir/libapsuserver.so"
+  rm -f "$REPO_ROOT/core/libapsuserver.so" "$REPO_ROOT/core/libapsuserver.h"
+  echo "==> Installed: $out_dir/libapsuserver.so"
 }
 
 case "$TARGET" in

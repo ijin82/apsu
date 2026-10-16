@@ -1,0 +1,27 @@
+.apsu-indicator-offline,
+.qsync-indicator-offline {
+    color: rgba(255, 255, 255, 0.4);
+}
+
+.apsu-indicator-online,
+.qsync-indicator-online {
+    color: #3584e4;
+}
+
+.apsu-indicator-mounted,
+.qsync-indicator-mounted {
+    color: #33d17a;
+}
+
+.apsu-menu-header,
+.qsync-menu-header {
+    font-weight: bold;
+    font-size: 1.1em;
+    padding-bottom: 4px;
+}
+
+.apsu-menu-subtitle,
+.qsync-menu-subtitle {
+    font-size: 0.85em;
+    color: #9a9996;
+}

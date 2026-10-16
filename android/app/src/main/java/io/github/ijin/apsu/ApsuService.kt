@@ -1,4 +1,4 @@
-package io.github.ijin.qsync
+package io.github.ijin.apsu
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -14,27 +14,27 @@ import android.net.wifi.WifiManager
 import android.os.PowerManager
 import kotlinx.coroutines.*
 
-class QSyncService : Service() {
+class ApsuService : Service() {
 
     private var wifiLock: WifiManager.WifiLock? = null
     private var multicastLock: WifiManager.MulticastLock? = null
     private var wakeLock: PowerManager.WakeLock? = null
 
     companion object {
-        const val CHANNEL_ID = "qsync_service_channel"
+        const val CHANNEL_ID = "apsu_service_channel"
         const val NOTIFICATION_ID = 1001
-        const val ACTION_START = "io.github.ijin.qsync.START"
-        const val ACTION_STOP = "io.github.ijin.qsync.STOP"
+        const val ACTION_START = "io.github.ijin.apsu.START"
+        const val ACTION_STOP = "io.github.ijin.apsu.STOP"
 
         val isRunning: Boolean
             get() = try {
-                QSyncBridge.isServerRunning()
+                ApsuBridge.isServerRunning()
             } catch (e: Exception) {
                 false
             }
 
         fun start(context: Context) {
-            val intent = Intent(context, QSyncService::class.java).apply {
+            val intent = Intent(context, ApsuService::class.java).apply {
                 action = ACTION_START
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -45,7 +45,7 @@ class QSyncService : Service() {
         }
 
         fun stop(context: Context) {
-            val intent = Intent(context, QSyncService::class.java).apply {
+            val intent = Intent(context, ApsuService::class.java).apply {
                 action = ACTION_STOP
             }
             context.startService(intent)
@@ -62,7 +62,7 @@ class QSyncService : Service() {
             ACTION_STOP -> {
                 stopKeepAlive()
                 releaseLocks()
-                QSyncBridge.stopServer()
+                ApsuBridge.stopServer()
                 stopForeground(true)
                 stopSelf()
             }
@@ -79,7 +79,7 @@ class QSyncService : Service() {
         try {
             if (wakeLock == null) {
                 val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager
-                wakeLock = powerManager?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "qSync:ServerWakeLock")?.apply {
+                wakeLock = powerManager?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Apsu:ServerWakeLock")?.apply {
                     setReferenceCounted(false)
                     acquire(24 * 60 * 60 * 1000L) // 24 hours safety timeout
                 }
@@ -91,19 +91,19 @@ class QSyncService : Service() {
                 } else {
                     WifiManager.WIFI_MODE_FULL_HIGH_PERF
                 }
-                wifiLock = wifiManager?.createWifiLock(mode, "qSync:ServerWifiLock")?.apply {
+                wifiLock = wifiManager?.createWifiLock(mode, "Apsu:ServerWifiLock")?.apply {
                     setReferenceCounted(false)
                     acquire()
                 }
             }
             if (multicastLock == null) {
-                multicastLock = wifiManager?.createMulticastLock("qSync:MulticastLock")?.apply {
+                multicastLock = wifiManager?.createMulticastLock("Apsu:MulticastLock")?.apply {
                     setReferenceCounted(false)
                     acquire()
                 }
             }
         } catch (e: Exception) {
-            android.util.Log.w("qSyncService", "Failed to acquire locks: ${e.message}")
+            android.util.Log.w("ApsuService", "Failed to acquire locks: ${e.message}")
         }
     }
 
@@ -124,7 +124,7 @@ class QSyncService : Service() {
             }
             wakeLock = null
         } catch (e: Exception) {
-            android.util.Log.w("qSyncService", "Failed to release locks: ${e.message}")
+            android.util.Log.w("ApsuService", "Failed to release locks: ${e.message}")
         }
     }
 
@@ -156,28 +156,28 @@ class QSyncService : Service() {
     private fun startServer() {
         try {
             val configDir = filesDir.absolutePath
-            QSyncBridge.initEngine(configDir)
-            val success = QSyncBridge.startServer()
-            android.util.Log.i("qSyncNative", "startServer returned: $success")
+            ApsuBridge.initEngine(configDir)
+            val success = ApsuBridge.startServer()
+            android.util.Log.i("ApsuNative", "startServer returned: $success")
             if (success) {
                 startKeepAlive()
             }
         } catch (e: Exception) {
-            android.util.Log.e("qSyncNative", "Failed to start server", e)
+            android.util.Log.e("ApsuNative", "Failed to start server", e)
         }
     }
 
     override fun onDestroy() {
         stopKeepAlive()
         releaseLocks()
-        QSyncBridge.stopServer()
+        ApsuBridge.stopServer()
         super.onDestroy()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     private fun getLocalizedContext(): Context {
-        val prefs = getSharedPreferences("qsync_prefs", Context.MODE_PRIVATE)
+        val prefs = getSharedPreferences("apsu_prefs", Context.MODE_PRIVATE)
         val lang = prefs.getString("app_language", "en") ?: "en"
         val locale = java.util.Locale(lang)
         val config = android.content.res.Configuration(resources.configuration).apply {

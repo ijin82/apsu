@@ -28,10 +28,10 @@ import (
 	"sync"
 	"unsafe"
 
-	"qsync/core/internal/auth"
-	"qsync/core/internal/discovery"
-	"qsync/core/internal/server"
-	"qsync/core/internal/storage"
+	"apsu/core/internal/auth"
+	"apsu/core/internal/discovery"
+	"apsu/core/internal/server"
+	"apsu/core/internal/storage"
 )
 
 var (
@@ -42,8 +42,8 @@ var (
 	broadcaster *discovery.Broadcaster
 )
 
-//export Java_io_github_ijin_qsync_QSyncBridge_initEngine
-func Java_io_github_ijin_qsync_QSyncBridge_initEngine(env *C.JNIEnv, clazz C.jclass, configDir C.jstring) C.jboolean {
+//export Java_io_github_ijin_apsu_ApsuBridge_initEngine
+func Java_io_github_ijin_apsu_ApsuBridge_initEngine(env *C.JNIEnv, clazz C.jclass, configDir C.jstring) C.jboolean {
 	engineLock.Lock()
 	defer engineLock.Unlock()
 
@@ -55,7 +55,7 @@ func Java_io_github_ijin_qsync_QSyncBridge_initEngine(env *C.JNIEnv, clazz C.jcl
 	}
 	if cfgPath == "" {
 		home, _ := os.UserHomeDir()
-		cfgPath = home + "/.config/qsync"
+		cfgPath = home + "/.config/apsu"
 	}
 
 	if broadcaster != nil {
@@ -77,8 +77,8 @@ func Java_io_github_ijin_qsync_QSyncBridge_initEngine(env *C.JNIEnv, clazz C.jcl
 	return C.JNI_TRUE
 }
 
-//export Java_io_github_ijin_qsync_QSyncBridge_startServer
-func Java_io_github_ijin_qsync_QSyncBridge_startServer(env *C.JNIEnv, clazz C.jclass) C.jboolean {
+//export Java_io_github_ijin_apsu_ApsuBridge_startServer
+func Java_io_github_ijin_apsu_ApsuBridge_startServer(env *C.JNIEnv, clazz C.jclass) C.jboolean {
 	engineLock.Lock()
 	defer engineLock.Unlock()
 
@@ -101,8 +101,8 @@ func Java_io_github_ijin_qsync_QSyncBridge_startServer(env *C.JNIEnv, clazz C.jc
 	return C.JNI_TRUE
 }
 
-//export Java_io_github_ijin_qsync_QSyncBridge_stopServer
-func Java_io_github_ijin_qsync_QSyncBridge_stopServer(env *C.JNIEnv, clazz C.jclass) {
+//export Java_io_github_ijin_apsu_ApsuBridge_stopServer
+func Java_io_github_ijin_apsu_ApsuBridge_stopServer(env *C.JNIEnv, clazz C.jclass) {
 	engineLock.Lock()
 	defer engineLock.Unlock()
 
@@ -114,8 +114,8 @@ func Java_io_github_ijin_qsync_QSyncBridge_stopServer(env *C.JNIEnv, clazz C.jcl
 	}
 }
 
-//export Java_io_github_ijin_qsync_QSyncBridge_isServerRunning
-func Java_io_github_ijin_qsync_QSyncBridge_isServerRunning(env *C.JNIEnv, clazz C.jclass) C.jboolean {
+//export Java_io_github_ijin_apsu_ApsuBridge_isServerRunning
+func Java_io_github_ijin_apsu_ApsuBridge_isServerRunning(env *C.JNIEnv, clazz C.jclass) C.jboolean {
 	engineLock.Lock()
 	defer engineLock.Unlock()
 
@@ -128,8 +128,8 @@ func Java_io_github_ijin_qsync_QSyncBridge_isServerRunning(env *C.JNIEnv, clazz 
 	return C.JNI_FALSE
 }
 
-//export Java_io_github_ijin_qsync_QSyncBridge_generatePIN
-func Java_io_github_ijin_qsync_QSyncBridge_generatePIN(env *C.JNIEnv, clazz C.jclass) C.jstring {
+//export Java_io_github_ijin_apsu_ApsuBridge_generatePIN
+func Java_io_github_ijin_apsu_ApsuBridge_generatePIN(env *C.JNIEnv, clazz C.jclass) C.jstring {
 	engineLock.Lock()
 	defer engineLock.Unlock()
 
@@ -142,8 +142,8 @@ func Java_io_github_ijin_qsync_QSyncBridge_generatePIN(env *C.JNIEnv, clazz C.jc
 	return C.new_string_utf(env, cStr)
 }
 
-//export Java_io_github_ijin_qsync_QSyncBridge_revokeDevice
-func Java_io_github_ijin_qsync_QSyncBridge_revokeDevice(env *C.JNIEnv, clazz C.jclass, tokenStr C.jstring) C.jboolean {
+//export Java_io_github_ijin_apsu_ApsuBridge_revokeDevice
+func Java_io_github_ijin_apsu_ApsuBridge_revokeDevice(env *C.JNIEnv, clazz C.jclass, tokenStr C.jstring) C.jboolean {
 	engineLock.Lock()
 	defer engineLock.Unlock()
 

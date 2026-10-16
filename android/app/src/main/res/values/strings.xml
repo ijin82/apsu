@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">qSync</string>
+    <string name="app_name">apsu</string>
 
     <!-- Top Bar -->
     <string name="settings_title">Settings</string>
@@ -10,7 +10,7 @@
     <string name="perm_storage_button">Grant Permission in 1-Tap</string>
 
     <string name="perm_battery_title">Background Connection</string>
-    <string name="perm_battery_desc">To prevent Android from disconnecting when switching apps, allow qSync to run in the background.</string>
+    <string name="perm_battery_desc">To prevent Android from disconnecting when switching apps, allow Apsu to run in the background.</string>
     <string name="perm_battery_button">Keep Alive in Background</string>
 
     <!-- Server Card -->
@@ -60,9 +60,9 @@
     <string name="btn_close">Close</string>
 
     <!-- Service Notifications -->
-    <string name="notification_channel_name">qSync File Sharing Service</string>
-    <string name="notification_channel_desc">Keeps qSync file server active in background</string>
-    <string name="notification_title">qSync is Running</string>
+    <string name="notification_channel_name">Apsu File Sharing Service</string>
+    <string name="notification_channel_desc">Keeps Apsu file server active in background</string>
+    <string name="notification_title">Apsu is Running</string>
     <string name="notification_text">Local Wi-Fi file sharing is active</string>
 
     <!-- Paired Devices -->

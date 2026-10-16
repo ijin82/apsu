@@ -10,9 +10,9 @@ import GLib from 'gi://GLib';
 import Clutter from 'gi://Clutter';
 import St from 'gi://St';
 
-const QSyncIface = `
+const ApsuIface = `
 <node>
-  <interface name="org.qsync.Daemon">
+  <interface name="org.apsu.Daemon">
     <method name="GetStatus">
       <arg type="b" direction="out" name="phoneFound"/>
       <arg type="s" direction="out" name="phoneName"/>
@@ -102,13 +102,13 @@ const QSyncIface = `
   </interface>
 </node>`;
 
-const QSyncProxy = Gio.DBusProxy.makeProxyWrapper(QSyncIface);
+const ApsuProxy = Gio.DBusProxy.makeProxyWrapper(ApsuIface);
 
 // Modal Pairing Dialog
-const QSyncPairDialog = GObject.registerClass(
-class QSyncPairDialog extends ModalDialog.ModalDialog {
+const ApsuPairDialog = GObject.registerClass(
+class ApsuPairDialog extends ModalDialog.ModalDialog {
     _init(extension, targetDev = null) {
-        super._init({ styleClass: 'qsync-pair-dialog' });
+        super._init({ styleClass: 'apsu-pair-dialog' });
         this._ext = extension;
         this._targetDev = targetDev;
 
@@ -178,7 +178,7 @@ class QSyncPairDialog extends ModalDialog.ModalDialog {
         this._ext.pairWithPhone(pin, targetIP, targetPort, (success, serverName, errorMsg) => {
             if (success) {
                 this.close();
-                Main.notify('qSync', `Successfully paired with ${serverName}!`);
+                Main.notify('Apsu', `Successfully paired with ${serverName}!`);
             } else {
                 this._pairButton.reactive = true;
                 this._pairButton.label = 'Pair';
@@ -190,10 +190,10 @@ class QSyncPairDialog extends ModalDialog.ModalDialog {
 });
 
 // Modal Sync Settings Dialog
-const QSyncSettingsDialog = GObject.registerClass(
-class QSyncSettingsDialog extends ModalDialog.ModalDialog {
+const ApsuSettingsDialog = GObject.registerClass(
+class ApsuSettingsDialog extends ModalDialog.ModalDialog {
     _init(extension, targetDev) {
-        super._init({ styleClass: 'qsync-settings-dialog' });
+        super._init({ styleClass: 'apsu-settings-dialog' });
         this._ext = extension;
         this._targetDev = targetDev;
         this._entries = {};
@@ -411,7 +411,7 @@ class QSyncSettingsDialog extends ModalDialog.ModalDialog {
             if (path) {
                 const clean = path.replace(/\/+$/, '') || '/';
                 if (forbiddenPaths.has(clean)) {
-                    Main.notify('qSync Error', `Cannot map '${clean}'. System roots and home directory cannot be synced.`);
+                    Main.notify('Apsu Error', `Cannot map '${clean}'. System roots and home directory cannot be synced.`);
                     return;
                 }
             }
@@ -425,23 +425,23 @@ class QSyncSettingsDialog extends ModalDialog.ModalDialog {
         });
 
         this.close();
-        Main.notify('qSync', 'Sync folder settings saved.');
+        Main.notify('Apsu', 'Sync folder settings saved.');
     }
 });
 
 // Quick Settings Toggle Widget
-const QSyncQuickToggle = GObject.registerClass(
-class QSyncQuickToggle extends QuickSettings.QuickMenuToggle {
+const ApsuQuickToggle = GObject.registerClass(
+class ApsuQuickToggle extends QuickSettings.QuickMenuToggle {
     _init(extension) {
         super._init({
-            title: 'qSync',
+            title: 'Apsu',
             iconName: 'phone-symbolic',
             toggleMode: true,
         });
 
-        this._isQSyncToggle = true;
+        this._isApsuToggle = true;
         this._ext = extension;
-        this.menu.setHeader('phone-symbolic', 'qSync for Android', 'Local Wi-Fi file sync');
+        this.menu.setHeader('phone-symbolic', 'Apsu for Android', 'Local Wi-Fi file sync');
 
         this._menuSection = new PopupMenu.PopupMenuSection();
         this.menu.addMenuItem(this._menuSection);
@@ -525,12 +525,12 @@ class QSyncQuickToggle extends QuickSettings.QuickMenuToggle {
 });
 
 // Quick Settings System Indicator
-const QSyncSystemIndicator = GObject.registerClass(
-class QSyncSystemIndicator extends QuickSettings.SystemIndicator {
+const ApsuSystemIndicator = GObject.registerClass(
+class ApsuSystemIndicator extends QuickSettings.SystemIndicator {
     _init(extension) {
         super._init();
-        this._isQSyncIndicator = true;
-        this.quickSettingsToggle = new QSyncQuickToggle(extension);
+        this._isApsuIndicator = true;
+        this.quickSettingsToggle = new ApsuQuickToggle(extension);
         this.quickSettingsItems.push(this.quickSettingsToggle);
     }
 
@@ -546,7 +546,7 @@ class QSyncSystemIndicator extends QuickSettings.SystemIndicator {
     }
 });
 
-export default class QSyncExtension extends Extension {
+export default class ApsuExtension extends Extension {
     enable() {
         this._isActive = false;
         this._phoneIP = '';
@@ -566,7 +566,7 @@ export default class QSyncExtension extends Extension {
 
         this._icon = new St.Icon({
             icon_name: 'phone-symbolic',
-            style_class: 'system-status-icon qsync-indicator-offline',
+            style_class: 'system-status-icon apsu-indicator-offline',
         });
         this._indicator.add_child(this._icon);
 
@@ -574,7 +574,7 @@ export default class QSyncExtension extends Extension {
         Main.panel.addToStatusArea(this.uuid, this._indicator);
 
         // 2. Quick Settings Toggle
-        this._qsIndicator = new QSyncSystemIndicator(this);
+        this._qsIndicator = new ApsuSystemIndicator(this);
         Main.panel.statusArea.quickSettings.addExternalIndicator(this._qsIndicator);
 
         this._initDBus();
@@ -608,6 +608,11 @@ export default class QSyncExtension extends Extension {
             this._syncSignalId = null;
         }
 
+        if (this._ownerNotifyId && this._proxy) {
+            this._proxy.disconnect(this._ownerNotifyId);
+            this._ownerNotifyId = null;
+        }
+
         if (this._indicator) {
             this._indicator.destroy();
             this._indicator = null;
@@ -633,7 +638,7 @@ export default class QSyncExtension extends Extension {
                 for (const child of qsMenu._grid.get_children()) {
                     if (this._qsIndicator && child === this._qsIndicator.quickSettingsToggle)
                         continue;
-                    if (child.title === 'qSync' || child._isQSyncToggle || child._ext !== undefined || child.constructor?.name === 'QSyncQuickToggle') {
+                    if (child.title === 'Apsu' || child._isApsuToggle || child._ext !== undefined || child.constructor?.name === 'ApsuQuickToggle') {
                         itemsToRemove.push(child);
                     }
                 }
@@ -645,7 +650,7 @@ export default class QSyncExtension extends Extension {
                 }
             }
         } catch (e) {
-            console.error('qSync: error during quick settings cleanup', e);
+            console.error('Apsu: error during quick settings cleanup', e);
         }
 
         try {
@@ -655,7 +660,7 @@ export default class QSyncExtension extends Extension {
                 for (const child of indicatorsBox.get_children()) {
                     if (child === this._qsIndicator)
                         continue;
-                    if (child._isQSyncIndicator || child.constructor?.name === 'QSyncSystemIndicator') {
+                    if (child._isApsuIndicator || child.constructor?.name === 'ApsuSystemIndicator') {
                         indicatorsToRemove.push(child);
                     }
                 }
@@ -667,7 +672,7 @@ export default class QSyncExtension extends Extension {
     }
 
     _buildPanelMenu() {
-        this._menuHeader = new PopupMenu.PopupMenuItem('qSync', {reactive: false});
+        this._menuHeader = new PopupMenu.PopupMenuItem('Apsu', {reactive: false});
         this._indicator.menu.addMenuItem(this._menuHeader);
 
         this._devicesSection = new PopupMenu.PopupMenuSection();
@@ -681,7 +686,7 @@ export default class QSyncExtension extends Extension {
             this._pairDialog.close();
             this._pairDialog = null;
         }
-        this._pairDialog = new QSyncPairDialog(this, targetDev);
+        this._pairDialog = new ApsuPairDialog(this, targetDev);
         this._pairDialog.connect('closed', () => {
             this._pairDialog = null;
         });
@@ -690,7 +695,7 @@ export default class QSyncExtension extends Extension {
 
     pairWithPhone(pin, ip = '', port = 8484, callback = null) {
         if (!this._proxy) {
-            if (callback) callback(false, '', 'Daemon not running. Turn on qSync first.');
+            if (callback) callback(false, '', 'Daemon not running. Turn on Apsu first.');
             return;
         }
         const targetIP = ip || this._phoneIP || '';
@@ -731,10 +736,10 @@ export default class QSyncExtension extends Extension {
 
     _startDaemon() {
         try {
-            GLib.spawn_command_line_async('systemctl --user start qsync.service');
+            GLib.spawn_command_line_async('systemctl --user start apsu.service');
         } catch (e) {
             try {
-                const [success, argv] = GLib.shell_parse_argv('qsync daemon');
+                const [success, argv] = GLib.shell_parse_argv('apsu daemon');
                 if (success) {
                     const launcher = new Gio.SubprocessLauncher({
                         flags: Gio.SubprocessFlags.NONE,
@@ -746,7 +751,7 @@ export default class QSyncExtension extends Extension {
     }
 
     _stopDaemon() {
-        // Also force-unmount any dav mounts for qsync in user session safely
+        // Also force-unmount any dav mounts for apsu in user session safely
         try {
             if (this._lastDevices && this._lastDevices.length > 0) {
                 const ipRegex = /^[a-zA-Z0-9.:%-]+$/;
@@ -757,7 +762,7 @@ export default class QSyncExtension extends Extension {
                     if (d.ip && ipRegex.test(d.ip)) {
                         const port = Number.isInteger(d.port) && d.port > 0 && d.port <= 65535 ? d.port : 8484;
                         try {
-                            launcher.spawnv(['gio', 'mount', '-u', '-f', `dav://qsync@${d.ip}:${port}/`]);
+                            launcher.spawnv(['gio', 'mount', '-u', '-f', `dav://apsu@${d.ip}:${port}/`]);
                         } catch (err) {}
                         try {
                             launcher.spawnv(['gio', 'mount', '-u', '-f', `dav://${d.ip}:${port}/`]);
@@ -768,7 +773,7 @@ export default class QSyncExtension extends Extension {
         } catch (e) {}
 
         try {
-            GLib.spawn_command_line_async('systemctl --user stop qsync.service');
+            GLib.spawn_command_line_async('systemctl --user stop apsu.service');
         } catch (e) {}
 
         if (this._daemonProc) {
@@ -810,18 +815,39 @@ export default class QSyncExtension extends Extension {
 
     _initDBus() {
         try {
-            this._proxy = new QSyncProxy(
+            this._proxy = new ApsuProxy(
                 Gio.DBus.session,
-                'org.qsync.Daemon',
-                '/org/qsync/Daemon',
+                'org.apsu.Daemon',
+                '/org/apsu/Daemon',
                 (proxy, error) => {
                     if (error) {
                         return;
                     }
-                    this._isActive = true;
+
+                    const isRunning = proxy.g_name_owner !== null;
+                    this._isActive = isRunning;
                     if (this._indicator) {
-                        this._indicator.visible = true;
+                        this._indicator.visible = isRunning;
                     }
+
+                    this._ownerNotifyId = proxy.connect('notify::g-name-owner', () => {
+                        const running = proxy.g_name_owner !== null;
+                        this._isActive = running;
+                        if (this._indicator) {
+                            this._indicator.visible = running;
+                        }
+                        if (running) {
+                            this._startPolling();
+                        } else {
+                            this._stopPolling();
+                            if (this._syncingDevices) {
+                                this._syncingDevices.clear();
+                            }
+                            this._renderedDevicesKey = '';
+                            this._updateUIState([]);
+                        }
+                    });
+
                     this._signalId = proxy.connectSignal('StatusChanged', () => {
                         this._refreshStatus();
                     });
@@ -839,7 +865,12 @@ export default class QSyncExtension extends Extension {
                         this._renderedDevicesKey = '';
                         this._refreshStatus();
                     });
-                    this._startPolling();
+
+                    if (isRunning) {
+                        this._startPolling();
+                    } else {
+                        this._updateUIState([]);
+                    }
                 }
             );
         } catch (e) {}
@@ -918,29 +949,29 @@ export default class QSyncExtension extends Extension {
         this._icon.style_class = 'system-status-icon';
         if (isAnySyncing) {
             this._icon.icon_name = 'emblem-synchronizing-symbolic';
-            this._icon.add_style_class_name(anyMounted ? 'qsync-indicator-mounted' : 'qsync-indicator-online');
+            this._icon.add_style_class_name(anyMounted ? 'apsu-indicator-mounted' : 'apsu-indicator-online');
         } else if (anyMounted) {
             this._icon.icon_name = 'drive-harddisk-symbolic';
-            this._icon.add_style_class_name('qsync-indicator-mounted');
+            this._icon.add_style_class_name('apsu-indicator-mounted');
         } else if (anyOnline) {
             this._icon.icon_name = 'phone-symbolic';
-            this._icon.add_style_class_name('qsync-indicator-online');
+            this._icon.add_style_class_name('apsu-indicator-online');
         } else {
             this._icon.icon_name = 'phone-symbolic';
-            this._icon.add_style_class_name('qsync-indicator-offline');
+            this._icon.add_style_class_name('apsu-indicator-offline');
         }
 
         // Update Top Bar Header (clean & static to avoid flicker)
         if (devices.length > 1) {
             const onlineCount = devices.filter(d => d.isOnline).length;
-            this._menuHeader.label.text = `qSync • ${onlineCount}/${devices.length} Online`;
+            this._menuHeader.label.text = `Apsu • ${onlineCount}/${devices.length} Online`;
         } else if (anyMounted) {
-            this._menuHeader.label.text = 'qSync • Mounted';
+            this._menuHeader.label.text = 'Apsu • Mounted';
         } else if (anyOnline) {
             const anyPaired = devices.some(d => d.isOnline && d.isPaired);
-            this._menuHeader.label.text = anyPaired ? 'qSync • Ready' : 'qSync • Pairing Required';
+            this._menuHeader.label.text = anyPaired ? 'Apsu • Ready' : 'Apsu • Pairing Required';
         } else {
-            this._menuHeader.label.text = 'qSync • Searching Wi-Fi...';
+            this._menuHeader.label.text = 'Apsu • Searching Wi-Fi...';
         }
 
         // 3. Render Devices in Menu with cache key check to eliminate flicker
@@ -1036,7 +1067,7 @@ export default class QSyncExtension extends Extension {
             this._settingsDialog.close();
             this._settingsDialog = null;
         }
-        this._settingsDialog = new QSyncSettingsDialog(this, targetDev);
+        this._settingsDialog = new ApsuSettingsDialog(this, targetDev);
         this._settingsDialog.connect('closed', () => {
             this._settingsDialog = null;
         });
@@ -1098,7 +1129,7 @@ export default class QSyncExtension extends Extension {
     openDeviceInFileManager(name, ip, port) {
         const targetIP = ip || this._phoneIP || '192.168.3.40';
         const targetPort = port || this._phonePort || 8484;
-        const uri = `dav://qsync@${targetIP}:${targetPort}/`;
+        const uri = `dav://apsu@${targetIP}:${targetPort}/`;
         try {
             Gio.AppInfo.launch_default_for_uri(uri, null);
         } catch (e) {

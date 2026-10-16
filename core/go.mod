@@ -1,4 +1,4 @@
-module qsync/core
+module apsu/core
 
 go 1.26.0
 

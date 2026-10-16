@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"qsync/core/internal/storage"
+	"apsu/core/internal/storage"
 )
 
 func setupTestStore(t *testing.T) *storage.Manager {

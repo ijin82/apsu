@@ -1,4 +1,4 @@
-package io.github.ijin.qsync
+package io.github.ijin.apsu
 
 import android.content.Context
 import android.content.Intent
@@ -96,7 +96,7 @@ class MainActivity : ComponentActivity() {
 
     override fun applyOverrideConfiguration(overrideConfiguration: Configuration?) {
         if (overrideConfiguration != null) {
-            val prefs = getSharedPreferences("qsync_prefs", Context.MODE_PRIVATE)
+            val prefs = getSharedPreferences("apsu_prefs", Context.MODE_PRIVATE)
             val langCode = prefs.getString("app_language", AppLanguage.EN.code) ?: AppLanguage.EN.code
             val locale = Locale(langCode)
             Locale.setDefault(locale)
@@ -111,7 +111,7 @@ class MainActivity : ComponentActivity() {
 
         ensureDefaultDownloadFolder()
 
-        val prefs = getSharedPreferences("qsync_prefs", Context.MODE_PRIVATE)
+        val prefs = getSharedPreferences("apsu_prefs", Context.MODE_PRIVATE)
         val savedLangCode = prefs.getString("app_language", AppLanguage.EN.code) ?: AppLanguage.EN.code
         val appLocale = Locale(savedLangCode)
         Locale.setDefault(appLocale)
@@ -158,16 +158,16 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    QSyncMainScreen(
+                    ApsuMainScreen(
                         onRequestAllFilesPermission = { requestAllFilesAccess() },
                         onRequestBatteryOptimization = { requestIgnoreBatteryOptimization() },
                         onStartServer = {
                             requestNotificationPermission()
-                            QSyncService.start(this)
+                            ApsuService.start(this)
                         },
-                        onStopServer = { QSyncService.stop(this) },
+                        onStopServer = { ApsuService.stop(this) },
                         getWifiIp = { getDeviceIpAddress() },
-                        configFile = File(filesDir, "qsync_config.json"),
+                        configFile = File(filesDir, "apsu_config.json"),
                         currentThemeMode = themeMode,
                         onThemeModeChanged = { newMode ->
                             prefs.edit().putString("theme_mode", newMode.name).apply()
@@ -234,7 +234,11 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun ensureDefaultDownloadFolder() {
-        val configFile = File(filesDir, "qsync_config.json")
+        val configFile = File(filesDir, "apsu_config.json")
+        val oldConfigFile = File(filesDir, "qsync_config.json")
+        if (!configFile.exists() && oldConfigFile.exists()) {
+            try { oldConfigFile.copyTo(configFile) } catch (ignored: Exception) {}
+        }
         if (!configFile.exists()) {
             val downloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
             val downloadPath = downloadDir.absolutePath
@@ -281,7 +285,7 @@ data class TrustedDeviceItem(val token: String, val deviceName: String, val crea
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun QSyncMainScreen(
+fun ApsuMainScreen(
     onRequestAllFilesPermission: () -> Unit,
     onRequestBatteryOptimization: () -> Unit,
     onStartServer: () -> Unit,
@@ -296,7 +300,7 @@ fun QSyncMainScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
-    var isRunning by remember { mutableStateOf(QSyncService.isRunning) }
+    var isRunning by remember { mutableStateOf(ApsuService.isRunning) }
     var currentIp by remember { mutableStateOf(getWifiIp()) }
     var hasFullStoragePermission by remember {
         mutableStateOf(
@@ -380,7 +384,7 @@ fun QSyncMainScreen(
     fun revokeDevice(item: TrustedDeviceItem) {
         try {
             try {
-                QSyncBridge.revokeDevice(item.token)
+                ApsuBridge.revokeDevice(item.token)
             } catch (ignored: Exception) {}
 
             if (configFile.exists()) {
@@ -475,7 +479,7 @@ fun QSyncMainScreen(
                 isIgnoringBatteryOptimizations = pm?.isIgnoringBatteryOptimizations(context.packageName) ?: true
             }
             currentIp = getWifiIp()
-            isRunning = QSyncService.isRunning
+            isRunning = ApsuService.isRunning
             readConfig()
             delay(2000)
         }
@@ -648,7 +652,7 @@ fun QSyncMainScreen(
                                 OutlinedButton(
                                     onClick = {
                                         val pin = try {
-                                            QSyncBridge.generatePIN()
+                                            ApsuBridge.generatePIN()
                                         } catch (e: Exception) {
                                             null
                                         }

@@ -44,7 +44,7 @@ func (b *Broadcaster) StartSecure(serviceName string, port int, tlsPort int, cer
 
 	server, err := zeroconf.Register(
 		serviceName,
-		"_qsync._tcp",
+		"_apsu._tcp",
 		"local.",
 		port,
 		txtRecords,

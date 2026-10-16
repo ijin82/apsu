@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"qsync/cli/internal/keyring"
+	"apsu/cli/internal/keyring"
 )
 
 func TestSyncEngine(t *testing.T) {
@@ -206,9 +206,9 @@ func TestIsProtectedPath(t *testing.T) {
 		{filepath.Join(home, ".ssh", "id_rsa"), true},
 		{filepath.Join(home, ".gnupg"), true},
 		{filepath.Join(home, ".config"), true},
-		{filepath.Join(home, ".config", "qsync"), true},
+		{filepath.Join(home, ".config", "apsu"), true},
 		{filepath.Join(home, "Music"), false},
-		{filepath.Join(home, "Documents", "qSync"), false},
+		{filepath.Join(home, "Documents", "Apsu"), false},
 		{filepath.Join(home, "Downloads"), false},
 	}
 

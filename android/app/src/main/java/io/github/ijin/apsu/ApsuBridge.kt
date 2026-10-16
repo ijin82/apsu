@@ -1,8 +1,8 @@
-package io.github.ijin.qsync
+package io.github.ijin.apsu
 
-object QSyncBridge {
+object ApsuBridge {
     init {
-        System.loadLibrary("qsyncserver")
+        System.loadLibrary("apsuserver")
     }
 
     external fun initEngine(configDir: String): Boolean

@@ -7,16 +7,16 @@ import (
 	"time"
 
 	godbus "github.com/godbus/dbus/v5"
-	"qsync/cli/internal/client"
-	"qsync/cli/internal/discovery"
-	"qsync/cli/internal/keyring"
-	"qsync/cli/internal/mount"
-	qsyncsync "qsync/cli/internal/sync"
+	"apsu/cli/internal/client"
+	"apsu/cli/internal/discovery"
+	"apsu/cli/internal/keyring"
+	"apsu/cli/internal/mount"
+	apsusync "apsu/cli/internal/sync"
 )
 
 const (
-	InterfaceName = "org.qsync.Daemon"
-	ObjectPath    = "/org/qsync/Daemon"
+	InterfaceName = "org.apsu.Daemon"
+	ObjectPath    = "/org/apsu/Daemon"
 )
 
 type DeviceStatus struct {
@@ -35,8 +35,8 @@ type DaemonService struct {
 	mu              sync.RWMutex
 	conn            *godbus.Conn
 	mounter         mount.Mounter
-	syncEngine      *qsyncsync.SyncEngine
-	syncLogger      *qsyncsync.SyncLogger
+	syncEngine      *apsusync.SyncEngine
+	syncLogger      *apsusync.SyncLogger
 	phoneFound      bool
 	phoneName       string
 	phoneIP         string
@@ -50,8 +50,8 @@ type DaemonService struct {
 }
 
 func NewDaemonService(conn *godbus.Conn) *DaemonService {
-	logger, _ := qsyncsync.NewSyncLogger("")
-	engine := qsyncsync.NewSyncEngine(logger)
+	logger, _ := apsusync.NewSyncLogger("")
+	engine := apsusync.NewSyncEngine(logger)
 	return &DaemonService{
 		conn:            conn,
 		mounter:         mount.GetMounter(),
@@ -114,7 +114,7 @@ func (d *DaemonService) Pair(pin string, ip string, port int) (bool, string, str
 		}
 	}
 	if targetIP == "" {
-		return false, "", "No phone found on Wi-Fi. Make sure qSync is running.", nil
+		return false, "", "No phone found on Wi-Fi. Make sure Apsu is running.", nil
 	}
 	if targetPort <= 0 {
 		targetPort = 8484
@@ -325,7 +325,7 @@ func (d *DaemonService) OpenDeviceInFileManager(name string, ip string, port int
 	}
 
 	if targetIP == "" {
-		return false, godbus.NewError("org.qsync.Error.NoPhone", []interface{}{"No phone known"})
+		return false, godbus.NewError("org.apsu.Error.NoPhone", []interface{}{"No phone known"})
 	}
 	if targetPort <= 0 {
 		targetPort = 8484
@@ -333,7 +333,7 @@ func (d *DaemonService) OpenDeviceInFileManager(name string, ip string, port int
 
 	err := d.mounter.OpenInFileManager(targetIP, targetPort)
 	if err != nil {
-		return false, godbus.NewError("org.qsync.Error.OpenFailed", []interface{}{err.Error()})
+		return false, godbus.NewError("org.apsu.Error.OpenFailed", []interface{}{err.Error()})
 	}
 	return true, nil
 }
@@ -400,25 +400,25 @@ func (d *DaemonService) GetSyncFolders(deviceName, ip string, port int) (string,
 
 func (d *DaemonService) SetSyncFolderMapping(deviceName, remoteFolder, localPath string) (bool, *godbus.Error) {
 	if deviceName == "" || remoteFolder == "" {
-		return false, godbus.NewError("org.qsync.Error.InvalidArgs", []interface{}{"Device name and remote folder are required"})
+		return false, godbus.NewError("org.apsu.Error.InvalidArgs", []interface{}{"Device name and remote folder are required"})
 	}
 	err := keyring.SetSyncMapping(deviceName, remoteFolder, localPath)
 	if err != nil {
-		return false, godbus.NewError("org.qsync.Error.SaveFailed", []interface{}{err.Error()})
+		return false, godbus.NewError("org.apsu.Error.SaveFailed", []interface{}{err.Error()})
 	}
 	return true, nil
 }
 
 func (d *DaemonService) SetSyncFolderMappings(deviceName, jsonMappings string) (bool, *godbus.Error) {
 	if deviceName == "" || jsonMappings == "" {
-		return false, godbus.NewError("org.qsync.Error.InvalidArgs", []interface{}{"Device name and jsonMappings are required"})
+		return false, godbus.NewError("org.apsu.Error.InvalidArgs", []interface{}{"Device name and jsonMappings are required"})
 	}
 	var mappings map[string]string
 	if err := json.Unmarshal([]byte(jsonMappings), &mappings); err != nil {
-		return false, godbus.NewError("org.qsync.Error.InvalidJSON", []interface{}{err.Error()})
+		return false, godbus.NewError("org.apsu.Error.InvalidJSON", []interface{}{err.Error()})
 	}
 	if err := keyring.SetSyncMappingsBatch(deviceName, mappings); err != nil {
-		return false, godbus.NewError("org.qsync.Error.SaveFailed", []interface{}{err.Error()})
+		return false, godbus.NewError("org.apsu.Error.SaveFailed", []interface{}{err.Error()})
 	}
 	return true, nil
 }

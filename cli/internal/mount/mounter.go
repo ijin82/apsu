@@ -58,7 +58,7 @@ func (l *linuxMounter) Mount(ip string, port int, token string) error {
 	if err := validateHostAndPort(ip, port); err != nil {
 		return err
 	}
-	uri := fmt.Sprintf("dav://qsync@%s:%d/", ip, port)
+	uri := fmt.Sprintf("dav://apsu@%s:%d/", ip, port)
 	cmd := exec.Command("gio", "mount", uri)
 	cmd.Stdin = strings.NewReader(token + "\n")
 	out, err := cmd.CombinedOutput()
@@ -78,6 +78,7 @@ func (l *linuxMounter) Unmount(ip string, port int) error {
 		return err
 	}
 	patterns := []string{
+		fmt.Sprintf("dav://apsu@%s:%d/", ip, port),
 		fmt.Sprintf("dav://qsync@%s:%d/", ip, port),
 		fmt.Sprintf("dav://%s:%d/", ip, port),
 	}
@@ -118,7 +119,7 @@ func (l *linuxMounter) OpenInFileManager(ip string, port int) error {
 	if err := validateHostAndPort(ip, port); err != nil {
 		return err
 	}
-	uri := fmt.Sprintf("dav://qsync@%s:%d/", ip, port)
+	uri := fmt.Sprintf("dav://apsu@%s:%d/", ip, port)
 	cmd := exec.Command("gio", "open", uri)
 	if err := cmd.Start(); err != nil {
 		// Fallback to xdg-open
@@ -136,13 +137,13 @@ func (d *darwinMounter) Mount(ip string, port int, token string) error {
 	}
 	cleanToken := strings.ReplaceAll(token, `\`, `\\`)
 	cleanToken = strings.ReplaceAll(cleanToken, `"`, `\"`)
-	url := fmt.Sprintf("http://qsync:%s@%s:%d/", cleanToken, ip, port)
+	url := fmt.Sprintf("http://apsu:%s@%s:%d/", cleanToken, ip, port)
 	cmd := exec.Command("osascript", "-e", fmt.Sprintf(`mount volume "%s"`, url))
 	return cmd.Run()
 }
 
 func (d *darwinMounter) Unmount(ip string, port int) error {
-	cmd := exec.Command("diskutil", "unmount", "/Volumes/qSync")
+	cmd := exec.Command("diskutil", "unmount", "/Volumes/Apsu")
 	return cmd.Run()
 }
 
@@ -159,7 +160,7 @@ func (d *darwinMounter) IsMounted(ip string, port int) (bool, error) {
 }
 
 func (d *darwinMounter) OpenInFileManager(ip string, port int) error {
-	return exec.Command("open", "/Volumes/qSync").Run()
+	return exec.Command("open", "/Volumes/Apsu").Run()
 }
 
 // Windows Mounter (net use)
@@ -170,7 +171,7 @@ func (w *windowsMounter) Mount(ip string, port int, token string) error {
 		return err
 	}
 	url := fmt.Sprintf("http://%s:%d/", ip, port)
-	cmd := exec.Command("net", "use", "*", url, "*", "/user:qsync")
+	cmd := exec.Command("net", "use", "*", url, "*", "/user:apsu")
 	cmd.Stdin = strings.NewReader(token + "\r\n")
 	return cmd.Run()
 }

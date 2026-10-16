@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# build_release.sh - Build and package qSync release bundle
+# build_release.sh - Build and package Apsu release bundle
 # Usage:
 #   ./scripts/build_release.sh [version]
 #
@@ -38,18 +38,18 @@ fi
 # Strip any leading 'v' for standard formatting, then prefix with 'v' for tags
 CLEAN_VERSION="${VERSION#v}"
 TAG_NAME="v${CLEAN_VERSION}"
-PACKAGE_NAME="qsync-${TAG_NAME}"
+PACKAGE_NAME="apsu-${TAG_NAME}"
 ZIP_NAME="${PACKAGE_NAME}-linux-android.zip"
 STAGING_DIR="${ROOT_DIR}/release_staging/${PACKAGE_NAME}"
 
 echo "=========================================================="
-echo " Packaging qSync Release ${TAG_NAME}"
+echo " Packaging Apsu Release ${TAG_NAME}"
 echo "=========================================================="
 
 # 1. Build Linux CLI binary
-echo "[1/4] Compiling Linux CLI binary..."
+echo "[1/4] Compiling Linux CLI binary (version ${CLEAN_VERSION})..."
 mkdir -p "${ROOT_DIR}/cli"
-(cd "${ROOT_DIR}/cli" && go build -ldflags="-s -w" -o qsync ./cmd/qsync)
+(cd "${ROOT_DIR}/cli" && go build -ldflags="-s -w -X main.Version=${CLEAN_VERSION}" -o apsu ./cmd/apsu)
 
 # 2. Build Android native core (arm64-v8a) & APK
 echo "[2/4] Building optimized Android arm64-v8a native core & APK..."
@@ -78,23 +78,23 @@ echo "[3/4] Assembling release payload..."
 rm -rf "${ROOT_DIR}/release_staging"
 mkdir -p "${STAGING_DIR}"
 
-cp "${ROOT_DIR}/cli/qsync" "${STAGING_DIR}/qsync"
+cp "${ROOT_DIR}/cli/apsu" "${STAGING_DIR}/apsu"
 cp "${APK_PATH}" "${STAGING_DIR}/${PACKAGE_NAME}.apk"
 cp -r "${ROOT_DIR}/gnome-extension" "${STAGING_DIR}/gnome-extension"
 cp "${ROOT_DIR}/scripts/install_linux.sh" "${STAGING_DIR}/install.sh"
-chmod +x "${STAGING_DIR}/install.sh" "${STAGING_DIR}/qsync"
+chmod +x "${STAGING_DIR}/install.sh" "${STAGING_DIR}/apsu"
 
 # Create release README.md
 cat << README_EOF > "${STAGING_DIR}/README.md"
-# qSync ${TAG_NAME}
+# Apsu ${TAG_NAME}
 
 Fast, local, and lightweight P2P file transfer and mounting between Android and Linux desktops.
 
 ## Package Contents
 
 - \`${PACKAGE_NAME}.apk\`: Android application.
-- \`qsync\`: Standalone Linux CLI binary (x86_64).
-- \`gnome-extension/\`: GNOME Shell extension (\`qsync@ijin.github.io\`) with Quick Settings toggle and top bar indicator.
+- \`apsu\`: Standalone Linux CLI binary (x86_64).
+- \`gnome-extension/\`: GNOME Shell extension (\`apsu@ijin.github.io\`) with Quick Settings toggle and top bar indicator.
 - \`install.sh\`: Automated Linux installer and systemd user service setup.
 
 ---
@@ -113,9 +113,9 @@ Run the automated installer:
 \`\`\`
 
 This installs:
-- CLI binary into \`~/.local/bin/qsync\`
-- Systemd user service \`qsync.service\` (\`systemctl --user status qsync.service\`)
-- GNOME extension to \`~/.local/share/gnome-shell/extensions/qsync@ijin.github.io/\`
+- CLI binary into \`~/.local/bin/apsu\`
+- Systemd user service \`apsu.service\` (\`systemctl --user status apsu.service\`)
+- GNOME extension to \`~/.local/share/gnome-shell/extensions/apsu@ijin.github.io/\`
 
 **Note for GNOME Shell:**
 Log out and log back in to reload GNOME Shell and activate the extension (or restart GNOME Shell if on X11 with \`Alt+F2\`, \`r\`, \`Enter\`).

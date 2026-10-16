@@ -51,11 +51,11 @@ func NewManager(configDir string) (*Manager, error) {
 		return nil, fmt.Errorf("failed to create config dir: %w", err)
 	}
 
-	configPath := filepath.Join(configDir, "qsync_config.json")
+	configPath := filepath.Join(configDir, "apsu_config.json")
 	mgr := &Manager{
 		configPath: configPath,
 		config: Config{
-			ServerName:     "qSync Android",
+			ServerName:     "Apsu Android",
 			Port:           8484,
 			Folders:        make([]SharedFolder, 0),
 			TrustedDevices: make(map[string]TrustedDevice),
@@ -134,7 +134,7 @@ func (m *Manager) loadLocked() error {
 		cfg.Port = 8484
 	}
 	if cfg.ServerName == "" {
-		cfg.ServerName = "qSync Android"
+		cfg.ServerName = "Apsu Android"
 	}
 
 	m.config = cfg

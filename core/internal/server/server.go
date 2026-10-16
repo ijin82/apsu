@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"golang.org/x/net/webdav"
-	"qsync/core/internal/auth"
-	"qsync/core/internal/storage"
+	"apsu/core/internal/auth"
+	"apsu/core/internal/storage"
 )
 
 type Server struct {
@@ -432,7 +432,7 @@ func (s *Server) handleWebDAV(handler *webdav.Handler, w http.ResponseWriter, r 
 	}
 
 	// Unauthorized
-	w.Header().Set("WWW-Authenticate", `Basic realm="qSync"`)
+	w.Header().Set("WWW-Authenticate", `Basic realm="Apsu"`)
 	http.Error(w, "Unauthorized: Pairing required", http.StatusUnauthorized)
 }
 

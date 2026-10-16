@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"qsync/cli/internal/client"
-	"qsync/cli/internal/keyring"
+	"apsu/cli/internal/client"
+	"apsu/cli/internal/keyring"
 )
 
 type SyncStats struct {

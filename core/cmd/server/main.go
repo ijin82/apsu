@@ -8,10 +8,10 @@ import (
 	"os/signal"
 	"syscall"
 
-	"qsync/core/internal/auth"
-	"qsync/core/internal/discovery"
-	"qsync/core/internal/server"
-	"qsync/core/internal/storage"
+	"apsu/core/internal/auth"
+	"apsu/core/internal/discovery"
+	"apsu/core/internal/server"
+	"apsu/core/internal/storage"
 )
 
 func main() {
@@ -20,7 +20,7 @@ func main() {
 
 	if *configDir == "" {
 		home, _ := os.UserHomeDir()
-		*configDir = home + "/.config/qsync"
+		*configDir = home + "/.config/apsu"
 	}
 
 	store, err := storage.NewManager(*configDir)
@@ -39,7 +39,7 @@ func main() {
 	cfg := store.GetConfig()
 	_ = broadcaster.Start(cfg.ServerName, srv.Port())
 
-	fmt.Printf("qSync core server running on port %d\n", srv.Port())
+	fmt.Printf("Apsu core server running on port %d\n", srv.Port())
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)

@@ -1,13 +1,13 @@
 {
-  "name": "qSync",
-  "description": "Quick Sync for Android: One-click local Wi-Fi file mounting for GNOME Nautilus",
-  "uuid": "qsync@ijin.github.io",
+  "name": "Apsu",
+  "description": "Apsu: Android Phone Sync Utility for GNOME & Nautilus",
+  "uuid": "apsu@ijin.github.io",
   "shell-version": [
     "45",
     "46",
     "47",
     "48"
   ],
-  "url": "https://github.com/ijin/qsync",
+  "url": "https://github.com/ijin/apsu",
   "version": 1
 }

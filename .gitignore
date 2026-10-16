@@ -4,10 +4,15 @@
 *.dll
 *.exe
 cli/qsync
+cli/apsu
 core/libqsyncserver.so
+core/libapsuserver.so
 core/libqsyncserver.h
+core/libapsuserver.h
 **/libqsyncserver.so
+**/libapsuserver.so
 **/libqsyncserver.h
+**/libapsuserver.h
 
 # Go build & test artifacts
 *.test

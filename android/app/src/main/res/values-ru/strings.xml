@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">qSync</string>
+    <string name="app_name">apsu</string>
 
     <!-- Верхняя панель -->
     <string name="settings_title">Настройки</string>
@@ -10,7 +10,7 @@
     <string name="perm_storage_button">Предоставить доступ в 1 касание</string>
 
     <string name="perm_battery_title">Работа в фоновом режиме</string>
-    <string name="perm_battery_desc">Чтобы связь не прерывалась при переключении приложений, разрешите qSync работать в фоне.</string>
+    <string name="perm_battery_desc">Чтобы связь не прерывалась при переключении приложений, разрешите Apsu работать в фоне.</string>
     <string name="perm_battery_button">Разрешить фоновую работу</string>
 
     <!-- Карточка сервера -->
@@ -26,7 +26,7 @@
 
     <!-- Секция общих папок -->
     <string name="folders_title">Общие папки</string>
-    <string name="folders_add_btn">Добавить папку</string>
+    <string name="folders_add_btn">Добавить</string>
     <string name="folders_empty">Нет общих папок. Нажмите «+ Добавить папку», чтобы выбрать каталог.</string>
     <string name="folders_sync_target_badge">Синхронизация</string>
     <string name="folders_delete_cd">Удалить папку</string>
@@ -60,9 +60,9 @@
     <string name="btn_close">Закрыть</string>
 
     <!-- Уведомления службы -->
-    <string name="notification_channel_name">Служба обмена файлами qSync</string>
-    <string name="notification_channel_desc">Поддерживает файловый сервер qSync активным в фоновом режиме</string>
-    <string name="notification_title">qSync запущен</string>
+    <string name="notification_channel_name">Служба обмена файлами Apsu</string>
+    <string name="notification_channel_desc">Поддерживает файловый сервер Apsu активным в фоновом режиме</string>
+    <string name="notification_title">Apsu запущен</string>
     <string name="notification_text">Локальный обмен файлами по Wi-Fi активен</string>
 
     <!-- Paired Devices -->

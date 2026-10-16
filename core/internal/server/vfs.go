@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"golang.org/x/net/webdav"
-	"qsync/core/internal/storage"
+	"apsu/core/internal/storage"
 )
 
 // VirtualFS routes the root directory to mapped shared folders

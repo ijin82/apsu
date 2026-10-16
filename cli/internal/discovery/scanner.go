@@ -120,7 +120,7 @@ func scanMDNS(ctx context.Context, out chan<- DiscoveredDevice) {
 		}
 	}()
 
-	_ = resolver.Browse(ctx, "_qsync._tcp", "local.", entries)
+	_ = resolver.Browse(ctx, "_apsu._tcp", "local.", entries)
 }
 
 func scanSubnets(ctx context.Context, port int, out chan<- DiscoveredDevice) {
@@ -169,8 +169,8 @@ func scanSubnets(ctx context.Context, port int, out chan<- DiscoveredDevice) {
 				defer resp.Body.Close()
 
 				authHeader := resp.Header.Get("Www-Authenticate")
-				if resp.StatusCode == http.StatusUnauthorized && strings.Contains(authHeader, `realm="qSync"`) {
-					deviceName := "qSync Android"
+				if resp.StatusCode == http.StatusUnauthorized && strings.Contains(authHeader, `realm="Apsu"`) {
+					deviceName := "Apsu Android"
 
 					// Try to fetch custom name configured on phone from /api/info
 					infoReq, infoErr := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf("http://%s:%d/api/info", targetIP, port), nil)

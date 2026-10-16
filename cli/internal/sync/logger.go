@@ -30,7 +30,7 @@ func GetLogPath() (string, error) {
 		}
 		configDir = filepath.Join(home, ".config")
 	}
-	dir := filepath.Join(configDir, "qsync")
+	dir := filepath.Join(configDir, "apsu")
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return "", err
 	}

@@ -1,8 +1,23 @@
-# qSync — Quick Sync for Android & Linux GNOME
+# Apsu — Android Phone Sync Utility (for Android & Linux GNOME)
 
-**qSync** is a lightweight, zero-friction local Wi-Fi file sharing suite. It connects an Android phone to a Linux desktop (GNOME Shell / Nautilus) with zero cloud dependencies, no internet required, end-to-end PIN pairing, and high-speed local WebDAV transfers.
+**Apsu** (**A**ndroid **P**hone **S**ync **U**tility) is a lightweight, zero-friction local Wi-Fi file sharing and folder sync suite. It connects an Android phone to a Linux desktop (GNOME Shell / Nautilus) with zero cloud dependencies, no internet required, end-to-end PIN pairing, and high-speed local WebDAV transfers.
 
 <img width="256" alt="ic_launcher-playstore" src="https://github.com/user-attachments/assets/34f0e533-a8d5-4986-a3bc-02857de2bd5d" />
+
+> [!NOTE]
+> ### 💡 Why "Apsu"? (A Story on Finding a Free Name in Modern Open Source)
+>
+> Finding a short, catchy, and unoccupied name on today's internet is a surprisingly hard quest!
+>
+> The project was originally named *qSync* — a great name, except there are already countless "QSyncs" out there (most notably QNAP's proprietary NAS sync suite). When looking for a replacement, almost every sensible combination was already claimed:
+> - *AirPair*? Countless existing software, hardware, and developer consulting brands.
+> - *WiMount*? An industrial mast antenna mounting hardware line by QuWireless.
+> - *WMAP*? NASA's famous Wilkinson Microwave Anisotropy Probe probe!
+> - *APSW*? Another Python SQLite wrapper.
+>
+> That's how we arrived at **Apsu**: a clean, punchy acronym for **A**ndroid **P**hone **S**ync **U**tility (and an accidental nod to the fresh primordial waters of ancient mythology). It's distinct, easy to type in the terminal (`apsu`), and completely conflict-free.
+
+---
 
 ## Architecture
 
@@ -11,25 +26,25 @@ The project is structured as a monorepo containing:
 1. **`core/` — Go Core WebDAV Engine & JNI Bridge**
    - High-performance WebDAV server with custom Virtual File System (VFS) routing.
    - Restricts access strictly to user-configured shared folders.
-   - mDNS local network announcement (`_qsync._tcp`).
+   - mDNS local network announcement (`_apsu._tcp`).
    - PIN-based mutual pairing and bearer token validation.
-   - Compiled as a native C-shared JNI library (`libqsyncserver.so`) for Android via NDK.
+   - Compiled as a native C-shared JNI library (`libapsuserver.so`) for Android via NDK.
 
 2. **`android/` — Native Android Application (Kotlin + Jetpack Compose)**
    - Built with Material 3 and Jetpack Compose.
    - Android 14+ compatible with `ForegroundService` support to keep the server alive in background.
    - Granular folder selection via Android Storage Access Framework (SAF).
-   - Direct JNI bindings (`QSyncBridge`) calling into the Go engine.
+   - Direct JNI bindings (`ApsuBridge`) calling into the Go engine.
    - Multi-language support with on-the-fly switching (English and Russian).
 
 3. **`cli/` — Linux CLI & D-Bus Daemon (Go)**
-   - Background D-Bus service (`org.qsync.Daemon`) for system and desktop integration.
-   - Automatic mDNS discovery (`qsync scan`).
-   - Simple, portable token and device pairing storage in client configuration JSON (`~/.config/qsync/client_config.json`) for cross-platform compatibility.
+   - Background D-Bus service (`org.apsu.Daemon`) for system and desktop integration.
+   - Automatic mDNS discovery (`apsu scan`).
+   - Simple, portable token and device pairing storage in client configuration JSON (`~/.config/apsu/client_config.json`) with automatic migration from older configurations.
    - Direct mounting via GVfs (`gio mount`).
 
 4. **`gnome-extension/` — GNOME Shell Extension (GNOME 45–48)**
-   - Status indicator in the GNOME Top Bar and Quick Settings.
+   - Status indicator in the GNOME Top Bar and Quick Settings (`apsu@ijin.github.io`).
    - Dynamic phone detection over local Wi-Fi.
    - In-extension PIN pairing modal dialog.
    - One-click drive mounting and opening in Nautilus.
@@ -41,7 +56,7 @@ The project is structured as a monorepo containing:
 - Docker (for cross-compiling the Android native core)
 - Android Studio / Android SDK (API 34+)
 
-### 1. Build the Android Native Core (`libqsyncserver.so`)
+### 1. Build the Android Native Core (`libapsuserver.so`)
 The Go engine can be built for multiple Android ABIs:
 - **`arm64-v8a`** (default): Modern 64-bit ARM phones (>95% of active devices).
 - **`armeabi-v7a`**: Older 32-bit ARM devices and tablets.
@@ -54,7 +69,7 @@ The Go engine can be built for multiple Android ABIs:
 # Or build for all architectures at once:
 ./scripts/build_android_native.sh all
 ```
-The script compiles `libqsyncserver.so` via Docker/NDK and installs it directly into `android/app/src/main/jniLibs/<abi>/`.
+The script compiles `libapsuserver.so` via Docker/NDK and installs it directly into `android/app/src/main/jniLibs/<abi>/`.
 
 ### 2. Build the Android App
 Open `android/` in Android Studio, or build via Gradle:
@@ -84,16 +99,56 @@ A single installation script handles compiling the CLI, installing the systemd u
 > After running `./scripts/install_linux.sh install`:
 > - **Log out and log back in** to your desktop session (or reboot).
 > - On X11, you can also press <kbd>Alt</kbd>+<kbd>F2</kbd>, type `r`, and press <kbd>Enter</kbd>.
-> Once logged in, the **qSync** phone icon will appear in the GNOME Top Bar and the Quick Settings menu.
+> Once logged in, the **Apsu** phone icon will appear in the GNOME Top Bar and the Quick Settings menu.
 
 To uninstall and remove all desktop components:
 ```bash
 ./scripts/install_linux.sh uninstall
 ```
 
+### 4. Managing the Background Service (Daemon)
+
+Apsu runs a background D-Bus daemon that manages device discovery, automatic sync, and GVfs mounting. You can control the service using convenient built-in CLI commands without needing root or `sudo`:
+
+```bash
+# Check service status:
+apsu service status
+
+# Start, stop, or restart the service:
+apsu service start
+apsu service stop
+apsu service restart
+
+# Check version:
+apsu version
+```
+
+You can also use standard systemd user commands:
+```bash
+systemctl --user status apsu.service
+systemctl --user restart apsu.service
+```
+
+> [!NOTE]
+> **Why `systemctl --user` instead of `sudo service`?**
+>
+> The Apsu daemon operates strictly as a **user session service** (`systemctl --user`), and should **not** be run with `sudo`:
+> - **Nautilus & GVfs Mounting**: Network drives are mounted via GVfs (`gio mount`) inside the desktop user's session (`/run/user/$UID/gvfs`). Running under `sudo` would mount files into `root`'s namespace, making them invisible in your Nautilus file manager.
+> - **D-Bus Session Bus**: The GNOME Shell extension and CLI communicate with the daemon via the user session bus (`DBUS_SESSION_BUS_ADDRESS`), which system-level root daemons cannot access.
+> - **One-Click Quick Settings Toggle**: The GNOME Quick Settings toggle manages the daemon directly without requiring administrative root privileges or Polkit password prompts.
+> - **User Credentials & Storage**: Pairing tokens and sync configs are securely scoped to `~/.config/apsu/`.
+
+> [!TIP]
+> **Prefer keeping the extension and daemon off by default at boot?**
+> If you prefer Apsu to stay turned off when your computer starts, simply disable service autostart:
+> ```bash
+> systemctl --user disable apsu.service
+> ```
+> When autostart is disabled, the GNOME Quick Settings toggle stays turned off on boot, and no background polling occurs. You can activate Apsu at any time simply by clicking the toggle in Quick Settings or running `apsu service start`.
+
 ## 🔄 Synchronized Folders (Desktop ➔ Phone One-Way Sync)
 
-Starting in version 1.2, qSync introduces **One-Way Folder Synchronization** from your Linux desktop directly to your Android device.
+Apsu features **One-Way Folder Synchronization** from your Linux desktop directly to your Android device.
 
 ### How it works:
 - **Desktop is the Source of Truth**: The target folder on your phone is maintained as an exact mirror of the mapped local directory on your PC.
@@ -112,24 +167,24 @@ To prevent accidental data loss:
 - **Desktop System Path Protection**: The sync engine strictly refuses to use `/`, `/home`, your entire user home directory (`~`), `/etc`, `/usr`, or other system directories as a sync source.
 
 ### Setup Guide:
-1. **On your phone**: In qSync, tap **Add Folder**, select or create a dedicated target folder (e.g., `Music`, `Podcasts`, or `Coub`), check **"Syncable folder (Desktop ➔ Phone)"**, and tap **Add**.
+1. **On your phone**: In Apsu, tap **Add Folder**, select or create a dedicated target folder (e.g., `Music`, `Podcasts`, or `Coub`), check **"Syncable folder (Desktop ➔ Phone)"**, and tap **Add**.
 2. **On your desktop**:
    - In the GNOME Top Bar menu, open your device submenu and click **⚙️ Sync Settings...**.
-   - Browse and choose the matching source directory on your PC (or configure mappings via CLI: `qsync sync --map "FolderName=/path/to/folder"`).
+   - Browse and choose the matching source directory on your PC (or configure mappings via CLI: `apsu sync --map "FolderName=/path/to/folder"`).
    - Click **Save**.
-3. **Run Sync**: Click **🔄 Sync Now** from the top bar menu or run `qsync sync` in your terminal. The icon will indicate progress without interrupting you with toast notifications.
+3. **Run Sync**: Click **🔄 Sync Now** from the top bar menu or run `apsu sync` in your terminal. The icon will indicate progress without interrupting you with toast notifications.
 
 ## Quick Usage
 
 1. **Android**:
-   - Open **qSync** on your phone.
+   - Open **Apsu** on your phone.
    - Grant storage permissions when prompted.
    - Select the folders you want to share (e.g. `Download`, `DCIM`, `Music`).
    - Tap **Start Server**.
    - Tap **Pair PC** to reveal a 6-digit PIN.
 
 2. **Desktop (GNOME)**:
-   - Click the **qSync** icon in the GNOME Top Bar (or Quick Settings).
+   - Click the **Apsu** icon in the GNOME Top Bar (or Quick Settings).
    - Select **Pair Phone...** and enter the 6-digit PIN.
    - Click **Mount** — your phone folders will immediately open in Nautilus as network drives!
 
@@ -137,9 +192,9 @@ To prevent accidental data loss:
 
 <img width="1044" height="538" alt="Screenshot From 2026-10-15 11-53-47 (Edit)" src="https://github.com/user-attachments/assets/cdaa3516-50b9-41d7-85f7-ce57bbb69d15" />
 
-## 🤝 Call for Contributors: Bring qSync to More Platforms!
+## 🤝 Call for Contributors: Bring Apsu to More Platforms!
 
-While qSync currently features first-class desktop integration for **GNOME Shell**, the underlying Go engine, CLI, and WebDAV/HTTP APIs are cross-platform.
+While Apsu currently features first-class desktop integration for **GNOME Shell**, the underlying Go engine, CLI, and WebDAV/HTTP APIs are cross-platform.
 
 We are looking for enthusiastic developers and contributors to help create native management interfaces and tray integrations for:
 - **Windows** (System tray utility, Windows Explorer network location / drive mapping)
@@ -154,4 +209,3 @@ If you're interested in building a UI for your favorite platform or desktop envi
 
 ## License
 MIT License
-

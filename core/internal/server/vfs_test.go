@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"qsync/core/internal/storage"
+	"apsu/core/internal/storage"
 )
 
 func TestVFSSandboxAndSymlinkEscape(t *testing.T) {

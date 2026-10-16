@@ -13,31 +13,31 @@ import (
 	godbus "github.com/godbus/dbus/v5"
 	"github.com/spf13/cobra"
 
-	"qsync/cli/internal/client"
-	"qsync/cli/internal/dbus"
-	"qsync/cli/internal/discovery"
-	"qsync/cli/internal/keyring"
-	"qsync/cli/internal/mount"
-	qsyncsync "qsync/cli/internal/sync"
+	"apsu/cli/internal/client"
+	"apsu/cli/internal/dbus"
+	"apsu/cli/internal/discovery"
+	"apsu/cli/internal/keyring"
+	"apsu/cli/internal/mount"
+	apsusync "apsu/cli/internal/sync"
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "qsync",
-	Short: "qSync - Quick Sync CLI for Android and GNOME/Linux",
+	Use:   "apsu",
+	Short: "Apsu - Android Phone Sync Utility for Linux GNOME",
 }
 
 var scanCmd = &cobra.Command{
 	Use:   "scan",
-	Short: "Scan local network for active qSync phones",
+	Short: "Scan local network for active Apsu phones",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("🔍 Scanning local network for qSync devices (3s)...")
+		fmt.Println("🔍 Scanning local network for Apsu devices (3s)...")
 		devices, err := discovery.Scan(3 * time.Second)
 		if err != nil {
 			fmt.Printf("❌ Scan error: %v\n", err)
 			return
 		}
 		if len(devices) == 0 {
-			fmt.Println("No qSync devices found. Make sure qSync server is started on the phone and connected to the same Wi-Fi.")
+			fmt.Println("No Apsu devices found. Make sure Apsu server is started on the phone and connected to the same Wi-Fi.")
 			return
 		}
 
@@ -109,7 +109,7 @@ var pairCmd = &cobra.Command{
 
 		fmt.Printf("🎉 Successfully paired with '%s'!\n", serverName)
 		fmt.Println("Token saved in configuration.")
-		fmt.Println("You can now run 'qsync mount' to access the phone.")
+		fmt.Println("You can now run 'apsu mount' to access the phone.")
 	},
 }
 
@@ -176,7 +176,7 @@ var mountCmd = &cobra.Command{
 		}
 
 		if targetIP == "" {
-			fmt.Println("❌ Phone not found on local Wi-Fi. Ensure qSync server is running.")
+			fmt.Println("❌ Phone not found on local Wi-Fi. Ensure Apsu server is running.")
 			return
 		}
 
@@ -186,13 +186,13 @@ var mountCmd = &cobra.Command{
 			token, err = keyring.GetToken("")
 		}
 		if err != nil || token == "" {
-			fmt.Println("❌ Device not paired yet. Please run 'qsync pair' first.")
+			fmt.Println("❌ Device not paired yet. Please run 'apsu pair' first.")
 			return
 		}
 
 		if !client.VerifyToken(targetIP, targetPort, token) {
 			fmt.Println("❌ Device rejected the saved token (pairing mismatch or app reinstalled on phone).")
-			fmt.Println("👉 Please run 'qsync pair' to pair with the phone again.")
+			fmt.Println("👉 Please run 'apsu pair' to pair with the phone again.")
 			return
 		}
 
@@ -244,7 +244,7 @@ var unmountCmd = &cobra.Command{
 		}
 
 		if targetIP == "" {
-			fmt.Println("❌ No known phone recorded. Run 'qsync mount' first.")
+			fmt.Println("❌ No known phone recorded. Run 'apsu mount' first.")
 			return
 		}
 
@@ -264,10 +264,10 @@ var statusCmd = &cobra.Command{
 		cfg, _ := keyring.LoadConfig()
 		m := mount.GetMounter()
 
-		fmt.Println("qSync Multi-Device Status:")
+		fmt.Println("Apsu Multi-Device Status:")
 
 		if len(cfg.PairedDevices) == 0 && cfg.LastServerName == "" {
-			fmt.Println("  No paired devices. Run 'qsync pair' to add a device.")
+			fmt.Println("  No paired devices. Run 'apsu pair' to add a device.")
 			return
 		}
 
@@ -314,12 +314,12 @@ var statusCmd = &cobra.Command{
 					fmt.Println("   Pairing:  ✅ Paired")
 					_ = keyring.UpdatePairedDevice(name, dev.IP, dev.Port, token)
 				} else {
-					fmt.Println("   Pairing:  ⚠️ Invalid/Expired Token (re-pair required: 'qsync pair')")
+					fmt.Println("   Pairing:  ⚠️ Invalid/Expired Token (re-pair required: 'apsu pair')")
 				}
 			} else if token != "" {
 				fmt.Println("   Pairing:  ⚪ Paired (offline)")
 			} else {
-				fmt.Println("   Pairing:  ❌ Token not found (run 'qsync pair')")
+				fmt.Println("   Pairing:  ❌ Token not found (run 'apsu pair')")
 			}
 
 			if isReachable {
@@ -348,13 +348,13 @@ var daemonCmd = &cobra.Command{
 		}
 		defer conn.Close()
 
-		reply, err := conn.RequestName("org.qsync.Daemon", godbus.NameFlagDoNotQueue)
+		reply, err := conn.RequestName("org.apsu.Daemon", godbus.NameFlagDoNotQueue)
 		if err != nil {
 			fmt.Printf("Failed to request D-Bus name: %v\n", err)
 			return
 		}
 		if reply != godbus.RequestNameReplyPrimaryOwner {
-			fmt.Println("Another instance of qsync daemon is already running.")
+			fmt.Println("Another instance of apsu daemon is already running.")
 			return
 		}
 
@@ -365,7 +365,7 @@ var daemonCmd = &cobra.Command{
 		}
 
 		service.StartMonitor()
-		fmt.Println("🚀 qSync D-Bus daemon running on org.qsync.Daemon...")
+		fmt.Println("🚀 Apsu D-Bus daemon running on org.apsu.Daemon...")
 
 		sigChan := make(chan os.Signal, 1)
 		signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
@@ -398,7 +398,7 @@ var syncCmd = &cobra.Command{
 		}
 
 		if targetName == "" {
-			fmt.Println("❌ No device specified and no paired devices found. Run 'qsync pair' first.")
+			fmt.Println("❌ No device specified and no paired devices found. Run 'apsu pair' first.")
 			return
 		}
 
@@ -428,13 +428,13 @@ var syncCmd = &cobra.Command{
 			mappings := keyring.GetSyncMappings(targetName)
 			fmt.Printf("Sync Folder Mappings for '%s':\n", targetName)
 			if len(mappings) == 0 {
-				fmt.Println("  (No mappings configured yet. Run 'qsync sync' while device is online to discover folders)")
+				fmt.Println("  (No mappings configured yet. Run 'apsu sync' while device is online to discover folders)")
 				return
 			}
 			for rFolder, lPath := range mappings {
 				status := "configured"
 				if lPath == "" {
-					status = "unmapped (edit in ~/.config/qsync/client_config.json)"
+					status = "unmapped (edit in ~/.config/apsu/client_config.json)"
 				} else if _, err := os.Stat(lPath); err != nil {
 					status = "local path not found"
 				}
@@ -485,17 +485,17 @@ var syncCmd = &cobra.Command{
 			token, _ = keyring.GetToken("")
 		}
 		if token == "" {
-			fmt.Printf("❌ Device '%s' not paired yet. Please run 'qsync pair' first.\n", targetName)
+			fmt.Printf("❌ Device '%s' not paired yet. Please run 'apsu pair' first.\n", targetName)
 			return
 		}
 
 		if !client.VerifyToken(targetIP, targetPort, token) {
-			fmt.Println("❌ Device rejected saved token. Please run 'qsync pair' again.")
+			fmt.Println("❌ Device rejected saved token. Please run 'apsu pair' again.")
 			return
 		}
 
-		logger, _ := qsyncsync.NewSyncLogger("")
-		engine := qsyncsync.NewSyncEngine(logger)
+		logger, _ := apsusync.NewSyncLogger("")
+		engine := apsusync.NewSyncEngine(logger)
 
 		fmt.Printf("🔄 Synchronizing folders for '%s' (%s:%d)...\n", targetName, targetIP, targetPort)
 		stats, summary, err := engine.SyncDevice(targetName, targetIP, targetPort, token)
@@ -506,9 +506,9 @@ var syncCmd = &cobra.Command{
 
 		fmt.Printf("✅ Sync completed: %s\n", summary)
 		if stats.ErrorCount > 0 {
-			fmt.Printf("⚠️ %d errors encountered. Check ~/.config/qsync/sync_history.log for details.\n", stats.ErrorCount)
+			fmt.Printf("⚠️ %d errors encountered. Check ~/.config/apsu/sync_history.log for details.\n", stats.ErrorCount)
 		} else {
-			fmt.Println("📁 All folders up to date! Log saved to ~/.config/qsync/sync_history.log")
+			fmt.Println("📁 All folders up to date! Log saved to ~/.config/apsu/sync_history.log")
 		}
 	},
 }

@@ -1,4 +1,4 @@
-module qsync/cli
+module apsu/cli
 
 go 1.26.7
 

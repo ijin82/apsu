@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	ServiceName = "qsync"
+	ServiceName = "apsu"
 	DefaultKey  = "default_token"
 )
 
@@ -45,11 +45,18 @@ func getConfigPath() (string, error) {
 		}
 		configDir = filepath.Join(home, ".config")
 	}
-	dir := filepath.Join(configDir, "qsync")
+	dir := filepath.Join(configDir, "apsu")
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "client_config.json"), nil
+	targetConfig := filepath.Join(dir, "client_config.json")
+	if _, err := os.Stat(targetConfig); os.IsNotExist(err) {
+		oldConfig := filepath.Join(configDir, "qsync", "client_config.json")
+		if data, err := os.ReadFile(oldConfig); err == nil {
+			_ = os.WriteFile(targetConfig, data, 0600)
+		}
+	}
+	return targetConfig, nil
 }
 
 func saveConfigLocked(cfg Config) error {

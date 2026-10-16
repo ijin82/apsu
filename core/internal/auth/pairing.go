@@ -11,7 +11,7 @@ import (
 	"time"
 	"unicode"
 
-	"qsync/core/internal/storage"
+	"apsu/core/internal/storage"
 )
 
 const (
