@@ -51,4 +51,5 @@ Thumbs.db
 gnome-extension/*.zip
 release/
 release_staging/
+apsu-*-linux-android/
 
