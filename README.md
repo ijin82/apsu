@@ -44,7 +44,7 @@ The project is structured as a monorepo containing:
    - Direct mounting via GVfs (`gio mount`).
 
 4. **`gnome-extension/` — GNOME Shell Extension (GNOME 45–48)**
-   - Status indicator in the GNOME Top Bar and Quick Settings (`apsu@ijin.github.io`).
+   - Status indicator in the GNOME Top Bar and Quick Settings (`apsu@ijin82.github.com`).
    - Dynamic phone detection over local Wi-Fi.
    - In-extension PIN pairing modal dialog.
    - One-click drive mounting and opening in Nautilus.

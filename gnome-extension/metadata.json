@@ -1,13 +1,13 @@
 {
   "name": "apsu",
   "description": "apsu: Android Phone Sync Utility for GNOME & Nautilus",
-  "uuid": "apsu@ijin.github.io",
+  "uuid": "apsu@ijin82.github.com",
   "shell-version": [
     "45",
     "46",
     "47",
     "48"
   ],
-  "url": "https://github.com/ijin/apsu",
+  "url": "https://github.com/ijin82/apsu",
   "version": 1
 }

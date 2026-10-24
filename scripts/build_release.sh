@@ -94,7 +94,7 @@ Fast, local, and lightweight P2P file transfer and mounting between Android and 
 
 - \`${PACKAGE_NAME}.apk\`: Android application.
 - \`apsu\`: Standalone Linux CLI binary (x86_64).
-- \`gnome-extension/\`: GNOME Shell extension (\`apsu@ijin.github.io\`) with Quick Settings toggle and top bar indicator.
+- \`gnome-extension/\`: GNOME Shell extension (\`apsu@ijin82.github.com\`) with Quick Settings toggle and top bar indicator.
 - \`install.sh\`: Automated Linux installer and systemd user service setup.
 
 ---
@@ -115,7 +115,7 @@ Run the automated installer:
 This installs:
 - CLI binary into \`~/.local/bin/apsu\`
 - Systemd user service \`apsu.service\` (\`systemctl --user status apsu.service\`)
-- GNOME extension to \`~/.local/share/gnome-shell/extensions/apsu@ijin.github.io/\`
+- GNOME extension to \`~/.local/share/gnome-shell/extensions/apsu@ijin82.github.com/\`
 
 **Note for GNOME Shell:**
 Log out and log back in to reload GNOME Shell and activate the extension (or restart GNOME Shell if on X11 with \`Alt+F2\`, \`r\`, \`Enter\`).

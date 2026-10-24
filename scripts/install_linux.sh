@@ -4,7 +4,7 @@
 # Installs:
 #   1. qSync CLI binary (~/.local/bin/apsu)
 #   2. Systemd user service (~/.config/systemd/user/apsu.service)
-#   3. GNOME Shell extension (~/.local/share/gnome-shell/extensions/apsu@ijin.github.io)
+#   3. GNOME Shell extension (~/.local/share/gnome-shell/extensions/apsu@ijin82.github.com)
 #
 
 set -e
@@ -19,7 +19,7 @@ fi
 
 BIN_DIR="${HOME}/.local/bin"
 SYSTEMD_DIR="${HOME}/.config/systemd/user"
-EXT_UUID="apsu@ijin.github.io"
+EXT_UUID="apsu@ijin82.github.com"
 EXT_DIR="${HOME}/.local/share/gnome-shell/extensions/${EXT_UUID}"
 
 print_info() {

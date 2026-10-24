@@ -47,6 +47,8 @@ Thumbs.db
 
 # Release artifacts & packages
 *.zip
+*.shell-extension.zip
+gnome-extension/*.zip
 release/
 release_staging/
 

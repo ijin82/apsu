@@ -187,6 +187,21 @@ class ApsuPairDialog extends ModalDialog.ModalDialog {
             }
         });
     }
+
+    destroy() {
+        if (this._entry) {
+            this._entry.destroy();
+            this._entry = null;
+        }
+        if (this._errorLabel) {
+            this._errorLabel.destroy();
+            this._errorLabel = null;
+        }
+        this._pairButton = null;
+        this._targetDev = null;
+        this._ext = null;
+        super.destroy();
+    }
 });
 
 // Modal Sync Settings Dialog
@@ -427,6 +442,18 @@ class ApsuSettingsDialog extends ModalDialog.ModalDialog {
         this.close();
         Main.notify('apsu', 'Sync folder settings saved.');
     }
+
+    destroy() {
+        if (this._foldersContainer) {
+            this._foldersContainer.destroy();
+            this._foldersContainer = null;
+        }
+        this._entries = null;
+        this._saveButton = null;
+        this._targetDev = null;
+        this._ext = null;
+        super.destroy();
+    }
 });
 
 // Quick Settings Toggle Widget
@@ -553,7 +580,9 @@ export default class ApsuExtension extends Extension {
         this._phonePort = 8484;
         this._daemonProc = null;
         this._pairDialog = null;
+        this._pairDialogClosedId = null;
         this._settingsDialog = null;
+        this._settingsDialogClosedId = null;
         this._syncingDevices = new Set();
         this._lastDevices = [];
 
@@ -584,14 +613,26 @@ export default class ApsuExtension extends Extension {
         this._stopPolling();
 
         if (this._pairDialog) {
+            if (this._pairDialogClosedId) {
+                this._pairDialog.disconnect(this._pairDialogClosedId);
+                this._pairDialogClosedId = null;
+            }
             this._pairDialog.close();
+            this._pairDialog.destroy();
             this._pairDialog = null;
         }
+        this._pairDialogClosedId = null;
 
         if (this._settingsDialog) {
+            if (this._settingsDialogClosedId) {
+                this._settingsDialog.disconnect(this._settingsDialogClosedId);
+                this._settingsDialogClosedId = null;
+            }
             this._settingsDialog.close();
+            this._settingsDialog.destroy();
             this._settingsDialog = null;
         }
+        this._settingsDialogClosedId = null;
 
         if (this._signalId && this._proxy) {
             this._proxy.disconnectSignal(this._signalId);
@@ -611,6 +652,21 @@ export default class ApsuExtension extends Extension {
         if (this._ownerNotifyId && this._proxy) {
             this._proxy.disconnect(this._ownerNotifyId);
             this._ownerNotifyId = null;
+        }
+
+        if (this._devicesSection) {
+            this._devicesSection.destroy();
+            this._devicesSection = null;
+        }
+
+        if (this._menuHeader) {
+            this._menuHeader.destroy();
+            this._menuHeader = null;
+        }
+
+        if (this._icon) {
+            this._icon.destroy();
+            this._icon = null;
         }
 
         if (this._indicator) {
@@ -683,12 +739,24 @@ export default class ApsuExtension extends Extension {
 
     showPairDialog(targetDev = null) {
         if (this._pairDialog) {
+            if (this._pairDialogClosedId) {
+                this._pairDialog.disconnect(this._pairDialogClosedId);
+                this._pairDialogClosedId = null;
+            }
             this._pairDialog.close();
+            this._pairDialog.destroy();
             this._pairDialog = null;
         }
         this._pairDialog = new ApsuPairDialog(this, targetDev);
-        this._pairDialog.connect('closed', () => {
-            this._pairDialog = null;
+        this._pairDialogClosedId = this._pairDialog.connect('closed', () => {
+            if (this._pairDialogClosedId && this._pairDialog) {
+                this._pairDialog.disconnect(this._pairDialogClosedId);
+                this._pairDialogClosedId = null;
+            }
+            if (this._pairDialog) {
+                this._pairDialog.destroy();
+                this._pairDialog = null;
+            }
         });
         this._pairDialog.open();
     }
@@ -1064,12 +1132,24 @@ export default class ApsuExtension extends Extension {
 
     showSyncSettingsDialog(targetDev = null) {
         if (this._settingsDialog) {
+            if (this._settingsDialogClosedId) {
+                this._settingsDialog.disconnect(this._settingsDialogClosedId);
+                this._settingsDialogClosedId = null;
+            }
             this._settingsDialog.close();
+            this._settingsDialog.destroy();
             this._settingsDialog = null;
         }
         this._settingsDialog = new ApsuSettingsDialog(this, targetDev);
-        this._settingsDialog.connect('closed', () => {
-            this._settingsDialog = null;
+        this._settingsDialogClosedId = this._settingsDialog.connect('closed', () => {
+            if (this._settingsDialogClosedId && this._settingsDialog) {
+                this._settingsDialog.disconnect(this._settingsDialogClosedId);
+                this._settingsDialogClosedId = null;
+            }
+            if (this._settingsDialog) {
+                this._settingsDialog.destroy();
+                this._settingsDialog = null;
+            }
         });
         this._settingsDialog.open();
     }
