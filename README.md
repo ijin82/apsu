@@ -189,8 +189,11 @@ To prevent accidental data loss:
    - Click **Mount** — your phone folders will immediately open in Nautilus as network drives!
 
 ## Screenshots
+<img width="533" alt="APSU1 2026-10-24 13-24-53" src="https://github.com/user-attachments/assets/26873f09-7341-4dee-b3a4-515fd3858f4e" />
+<img width="533" alt="APSU2 2026-10-24 13-24-45" src="https://github.com/user-attachments/assets/a91a2ea9-a913-431c-98e2-dc7e0a9489d6" />
+<img width="533" alt="APSU3 2026-10-24 13-27-24" src="https://github.com/user-attachments/assets/0ad80434-aa62-4ced-9b1b-5060f11b4d84" />
+<img width="533" alt="APSU4 Screenshot_20261024-133021" src="https://github.com/user-attachments/assets/725effac-2a38-47a8-b21b-af724cd20a3d" />
 
-<img width="1044" height="538" alt="Screenshot From 2026-10-15 11-53-47 (Edit)" src="https://github.com/user-attachments/assets/cdaa3516-50b9-41d7-85f7-ce57bbb69d15" />
 
 ## 🤝 Call for Contributors: Bring Apsu to More Platforms!
 
